@@ -1,0 +1,48 @@
+{
+  "name": "@cookiemunch/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for the Cookie Munch Developer API",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "cookiemunch-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "src", "README.md", "LICENSE"],
+  "keywords": ["cookie-munch", "cmp", "consent", "mcp", "model-context-protocol", "ai", "agent"],
+  "homepage": "https://cookiemunch.net",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cookie-Munch/mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Cookie-Munch/mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "prepare": "tsup"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@cookiemunch/sdk": "github:Cookie-Munch/sdk",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
