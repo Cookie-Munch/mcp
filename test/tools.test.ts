@@ -139,6 +139,39 @@ const VALID_V2_CONFIG = {
 };
 
 const EXPECTED_TOOLS = [
+  // --- platform surfaces (identity / vault / profile / subscriptions / assessments /
+  //     discovery / DSR fulfillment / AI governance) ---
+  'resolve_identity',
+  'link_identity',
+  'record_consent_decision',
+  'get_consent_state',
+  'get_profile',
+  'set_profile_attributes',
+  'activate_profile',
+  'get_subscription_topics',
+  'set_subscription_topics',
+  'plan_warehouse_enforcement',
+  'get_regulatory_feed',
+  'get_upcoming_regulations',
+  'get_subscriptions',
+  'set_subscription',
+  'global_unsubscribe',
+  'list_assessment_templates',
+  'start_assessment',
+  'get_assessment',
+  'answer_assessment_question',
+  'autopopulate_assessment_from_data_map',
+  'submit_assessment',
+  'get_data_map',
+  'get_data_drift',
+  'get_ropa_drafts',
+  'get_dsr_sla',
+  'plan_dsr_fulfillment',
+  'get_dsr_fulfillment_status',
+  'inspect_ai_prompt',
+  'get_ai_inventory',
+  'get_ai_lineage',
+  // --- CMP tools ---
   'whoami',
   'list_sites',
   'create_site',
@@ -202,6 +235,52 @@ const EXPECTED_TOOLS = [
   'delete_banner',
   'assign_banner',
   'publish_banner',
+  'get_site',
+  'get_site_banner',
+  'get_banner_assignments',
+  'get_ai_policy',
+  'set_ai_policy',
+  'register_ai_system',
+  'get_ai_audit_log',
+  'get_identity_cluster',
+  'list_permits',
+  'resubscribe',
+  'get_subscription_activation',
+  'list_assessments',
+  'get_discovery_evidence',
+  'get_privacy_policy',
+  'set_ad_personalization',
+  'analyze_session',
+  'autopopulate_assessment',
+  'list_ai_systems',
+  'list_customers',
+  'get_customer',
+  'provision_customer',
+  'update_customer',
+  'suspend_customer',
+  'list_customer_keys',
+  'issue_customer_key',
+  'revoke_customer_key',
+  'get_dsar_response_notice',
+  'export_ropa_csv',
+  'create_sites_bulk',
+  'get_subject_consent',
+  'update_webhook',
+  'get_verification_challenge',
+  'revoke_api_key',
+  'roll_api_key',
+  'update_api_key',
+  'get_org',
+  'update_org',
+  'get_audit_log',
+  'upload_asset',
+  'roll_webhook_secret',
+  'test_webhook',
+  'list_webhook_dead_letters',
+  'replay_webhook_dead_letter',
+  'erase_dsar_subject',
+  'export_dsar_subject',
+  'get_preference',
 ];
 
 describe('registerTools', () => {
@@ -218,6 +297,30 @@ describe('registerTools', () => {
       expect(typeof t.config.description).toBe('string');
       expect(t.config.description!.length).toBeGreaterThan(0);
     }
+  });
+
+  /** The DSAR-gated erasure passes the request id through, so the server can check it. */
+  it('erase_dsar_subject erases by request, not by stamp alone', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const erase = vi.fn(async () => ({ erased: 2, encryptionEnabled: true, request: {} }));
+    (client.dsar as unknown as { erase: typeof erase }).erase = erase;
+    registerTools(server, client);
+    await byName('erase_dsar_subject').handler({ id: 'dsar_1', cbid: 'site-a', stamp: 'st-1' });
+    expect(erase).toHaveBeenCalledWith('dsar_1', 'site-a', 'st-1');
+  });
+
+  /** Only the fields given are sent, so an agent renaming the org cannot clear its logo. */
+  it('update_org sends only the fields given', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const update = vi.fn(async () => ({}));
+    (client as unknown as { org: { update: typeof update } }).org = { update } as never;
+    registerTools(server, client);
+    await byName('update_org').handler({ name: 'Acme' });
+    expect(update).toHaveBeenCalledWith({ name: 'Acme' });
+    await byName('update_org').handler({ logoUrl: null });
+    expect(update).toHaveBeenLastCalledWith({ logoUrl: null });
   });
 
   it('whoami calls client.me and returns its JSON', async () => {
@@ -343,6 +446,15 @@ describe('registerTools', () => {
     expect(res.isError).toBeFalsy();
     expect(client.sites.snippet).toHaveBeenCalledWith('a', { blockingMode: 'manual', culture: 'fr' });
     expect(res.content[0]!.text).toContain('consent.js');
+  });
+
+  it('get_install_snippet rejects an unsupported blockingMode ("checklist") instead of silently passing it through', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    const res = await byName('get_install_snippet').handler({ cbid: 'a', blockingMode: 'checklist' });
+    expect(res.isError).toBe(true);
+    expect(client.sites.snippet).not.toHaveBeenCalled();
   });
 
   it('verify_site forwards cbid + method', async () => {

@@ -204,21 +204,24 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     },
   );
 
+  const getInstallSnippetSchema = z.object({
+    cbid: z.string().describe('Site identifier (cbid). Must belong to your org.'),
+    blockingMode: z
+      .enum(['auto', 'manual'])
+      .optional()
+      .describe(
+        '"auto" (default) blocks third-party scripts until consent is given; "manual" never blocks. These are the only two modes the runtime embed honors — any other value is rejected rather than silently downgraded.',
+      ),
+    culture: z.string().optional().describe('Language culture override, e.g. "en", "fr", "de".'),
+  });
+
   tool(
     'get_install_snippet',
     'Get the exact <script> tag to install Cookie Munch on a site. Copy and paste this into the <head> of every page on the site.',
-    {
-      cbid: z.string().describe('Site identifier (cbid). Must belong to your org.'),
-      blockingMode: z
-        .enum(['auto', 'manual', 'checklist'])
-        .optional()
-        .describe('Banner blocking mode. "auto" (default) blocks third-party scripts until consent is given; "manual" never blocks; "checklist" blocks per category.'),
-      culture: z.string().optional().describe('Language culture override, e.g. "en", "fr", "de".'),
+    getInstallSnippetSchema.shape,
+    (a) => {
+      const { cbid: siteId, blockingMode, culture } = getInstallSnippetSchema.parse(a);
+      return client.sites.snippet(siteId, { blockingMode, culture });
     },
-    (a) =>
-      client.sites.snippet(a.cbid as string, {
-        blockingMode: a.blockingMode as 'auto' | 'manual' | 'checklist' | undefined,
-        culture: a.culture as string | undefined,
-      }),
   );
 }

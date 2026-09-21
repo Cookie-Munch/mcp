@@ -9,6 +9,7 @@
 import { z, type ZodRawShape } from 'zod';
 import type { CookieMunchClient } from '@cookiemunch/sdk';
 import { registerConfigTools } from './tools-config.js';
+import { registerPlatformTools } from './tools-platform.js';
 // No @cookiemunch/core dependency: the v2 flow engine runs server-side behind the
 // /v1/sites/:cbid/flow endpoints, which the SDK client surfaces as getFlow/editFlow/
 // setFlow. The MCP server therefore bundles only the SDK.
@@ -72,6 +73,58 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool('whoami', 'Return the identity tied to the API key: orgId, plan, and key prefix.', {}, () => client.me());
 
   tool('list_sites', 'List all sites (cbids) in your organization.', {}, () => client.sites.list());
+  tool('get_site', 'One site: its domain, cbid and verification status. Read-only.', { cbid: z.string() }, (a) =>
+    client.sites.get(a.cbid as string),
+  );
+  tool(
+    'get_site_banner',
+    'Which banner design a site uses, or bannerId null when none is assigned. Read-only.',
+    { cbid: z.string() },
+    (a) => client.sites.banner(a.cbid as string),
+  );
+
+  tool(
+    'get_privacy_policy',
+    "Generate the site's privacy and cookie policy as Markdown, naming the org's data controller. Needs a contact email: the one given, else the org controller's, else the owner's. Read-only — nothing is published.",
+    { cbid: z.string(), contactEmail: z.string().optional(), effectiveDate: z.string().optional().describe('YYYY-MM-DD; defaults to today.'), jurisdictions: z.array(z.string()).optional() },
+    (a) =>
+      client.sites.policy(a.cbid as string, {
+        ...(a.contactEmail ? { contactEmail: a.contactEmail as string } : {}),
+        ...(a.effectiveDate ? { effectiveDate: a.effectiveDate as string } : {}),
+        ...(a.jurisdictions ? { jurisdictions: a.jurisdictions as string[] } : {}),
+      }),
+  );
+
+  tool(
+    'set_ad_personalization',
+    "Add or remove the separate 'personalised ads' choice on the site's live banner. With it on, accepting marketing no longer implies personalised ads unless `default` is true.",
+    { cbid: z.string(), enabled: z.boolean(), default: z.boolean().optional(), label: z.string().optional() },
+    (a) =>
+      client.sites.setAdPersonalization(a.cbid as string, {
+        enabled: a.enabled as boolean,
+        ...(a.default !== undefined ? { default: a.default as boolean } : {}),
+        ...(a.label ? { label: a.label as string } : {}),
+      }),
+  );
+
+  tool(
+    'analyze_session',
+    'Analyse a captured browsing session against the consent it ran under: which trackers fired after the visitor opted out, and what personal data left the page. Read-only.',
+    {
+      cbid: z.string(),
+      har: z.unknown().optional().describe('A HAR export of the session.'),
+      requests: z.array(z.unknown()).optional().describe('Or the requests directly.'),
+      consent: z.record(z.string(), z.boolean()).optional(),
+      gpc: z.boolean().optional(),
+    },
+    (a) =>
+      client.sites.analyzeSession(a.cbid as string, {
+        ...(a.har !== undefined ? { har: a.har } : {}),
+        ...(a.requests ? { requests: a.requests as unknown[] } : {}),
+        ...(a.consent ? { consent: a.consent as Record<string, boolean> } : {}),
+        ...(a.gpc !== undefined ? { gpc: a.gpc as boolean } : {}),
+      }),
+  );
 
   tool(
     'create_site',
@@ -80,12 +133,24 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     (a) => client.sites.create({ domain: a.domain as string, ...(typeof a.cbid === 'string' ? { cbid: a.cbid } : {}) }),
   );
 
+  tool(
+    'create_sites_bulk',
+    'Create up to 100 sites in one call. Partial success: each item reports ok or its own error, and a bad or duplicate item fails only itself.',
+    {
+      sites: z
+        .array(z.object({ domain: z.string(), cbid: z.string().optional(), platform: z.string().optional() }))
+        .min(1)
+        .max(100),
+    },
+    (a) => client.sites.createBulk(a.sites as Array<{ domain: string; cbid?: string; platform?: string }>),
+  );
+
   tool('get_site_config', 'Get the banner/consent configuration for a site.', { ...cbid }, (a) => client.sites.getConfig(a.cbid as string));
 
   tool(
     'update_site_config',
-    'Upsert (merge) the banner/consent configuration for a site.',
-    { ...cbid, config: z.record(z.unknown()).describe('A partial SiteConfig patch to merge.') },
+    'Replace (overwrite) the banner/consent configuration for a site via PUT. This is destructive, not a merge: any top-level SiteConfig field you omit from `config` reverts to its default rather than keeping its current value. Call get_site_config first, apply your changes to the result, and pass the full merged object back (read-modify-write). Prefer the narrower set_* tools (set_blocking, set_banner_basics, etc.) when they cover your change, since those already do the read-modify-write for you.',
+    { ...cbid, config: z.record(z.unknown()).describe('The full SiteConfig to write, not a patch. Omitted top-level fields are NOT preserved from the current config — fetch get_site_config first and merge client-side.') },
     (a) => client.sites.putConfig(a.cbid as string, a.config as Record<string, unknown>),
   );
 
@@ -108,7 +173,32 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       }),
   );
 
+  tool(
+    'get_subject_consent',
+    "One person's consent records across every site in the org — web, mobile and desktop — by the subjectId your apps attach. Consent data: needs the consent:read scope. Read-only.",
+    { subjectId: z.string() },
+    (a) => client.subjects.consent(a.subjectId as string),
+  );
+
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
+  tool(
+    'erase_dsar_subject',
+    'For a deletion request that is past identity verification: erase the person’s consent records on one site, identified by their consent stamp. Irreversible. The erasure is noted on the request. If the response carries a warning, nothing was cryptographically erased — tell the user.',
+    { id: z.string(), cbid: z.string(), stamp: z.string() },
+    (a) => client.dsar.erase(a.id as string, a.cbid as string, a.stamp as string),
+  );
+  tool(
+    'export_dsar_subject',
+    'For an access or portability request that is past identity verification: the person’s consent records on one site, identified by their consent stamp. The export is noted on the request.',
+    { id: z.string(), cbid: z.string(), stamp: z.string() },
+    (a) => client.dsar.export(a.id as string, a.cbid as string, a.stamp as string),
+  );
+  tool(
+    'get_dsar_response_notice',
+    'The subject-facing response notice for a request, as plain text — what to send the person. Read-only; nothing is sent.',
+    { id: z.string() },
+    (a) => client.dsar.response(a.id as string),
+  );
 
   tool(
     'create_dsar',
@@ -184,6 +274,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool('list_ropa', 'List Records of Processing Activities (RoPA) for your organization.', {}, () => client.ropa.list());
+  tool('export_ropa_csv', 'The org’s RoPA (GDPR Art. 30) as CSV. Read-only.', {}, () => client.ropa.exportCsv());
 
   tool(
     'create_ropa',
@@ -255,6 +346,53 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       }),
   );
 
+  tool(
+    'roll_webhook_secret',
+    'Rotate a webhook subscription’s signing secret. The new secret is returned once; the receiving endpoint must be updated to verify with it.',
+    { id: z.string() },
+    (a) => client.webhooks.rollSecret(a.id as string),
+  );
+
+  tool(
+    'test_webhook',
+    'Send a signed test event to a webhook subscription now, and report what the endpoint answered.',
+    { id: z.string() },
+    (a) => client.webhooks.test(a.id as string),
+  );
+
+  tool(
+    'list_webhook_dead_letters',
+    'Webhook deliveries that failed every retry, newest first, with the last status or error. Read-only.',
+    {},
+    () => client.webhooks.deadLetters(),
+  );
+
+  tool(
+    'replay_webhook_dead_letter',
+    'Deliver a dead-lettered webhook event again, to the subscription as it is now.',
+    { id: z.string() },
+    (a) => client.webhooks.replayDeadLetter(a.id as string),
+  );
+
+  tool(
+    'update_webhook',
+    'Change a webhook subscription, or pause it with active:false (delivery stops; the subscription is kept). Only the fields given change. cbid: null widens it to every property in the org.',
+    {
+      id: z.string(),
+      url: z.string().optional(),
+      events: z.array(z.string()).optional(),
+      cbid: z.string().nullable().optional(),
+      active: z.boolean().optional(),
+    },
+    (a) =>
+      client.webhooks.update(a.id as string, {
+        ...(a.url !== undefined ? { url: a.url as string } : {}),
+        ...(a.events !== undefined ? { events: a.events as string[] } : {}),
+        ...(a.cbid !== undefined ? { cbid: a.cbid as string | null } : {}),
+        ...(a.active !== undefined ? { active: a.active as boolean } : {}),
+      }),
+  );
+
   tool('delete_webhook', 'Delete a webhook subscription by id.', { id: z.string().describe('The webhook subscription id.') }, async (a) => {
     await client.webhooks.delete(a.id as string);
     return { ok: true };
@@ -265,6 +403,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Verify that your organization controls a domain by one of three challenge methods (dns / meta / file). Required to unlock consent export and signed receipts.',
     { ...cbid, method: z.enum(['dns', 'meta', 'file']).describe('Challenge method: dns (TXT record), meta (HTML tag), or file (/.well-known/cookiemunch-verify.txt).') },
     (a) => client.sites.verify(a.cbid as string, a.method as 'dns' | 'meta' | 'file'),
+  );
+
+  tool(
+    'get_verification_challenge',
+    'Exactly what to publish to prove control of a site’s domain: the DNS TXT record, the meta tag, the file, or installing the embed. Read-only — publish one, then call verify_site.',
+    { cbid: z.string() },
+    (a) => client.sites.verifyChallenge(a.cbid as string),
   );
 
   tool(
@@ -316,6 +461,8 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   // ---------------------------------------------------------------------------
 
   registerConfigTools(tool, client);
+
+  registerPlatformTools(tool, client);
 
   // ---------------------------------------------------------------------------
   // Task 4: org/member/brand-kit/preference writes + issue_api_key
@@ -401,11 +548,171 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
-    'issue_api_key',
-    'Issue a new API key for your organization. The secret is returned once — store it securely. Subsequent requests cannot retrieve the secret again.',
-    {},
-    () => client.keys.issue(),
+    'get_preference',
+    'One end-user’s saved preferences, by subjectId. Read-only.',
+    { subjectId: z.string() },
+    (a) => client.preferences.get(a.subjectId as string),
   );
+
+  tool(
+    'issue_api_key',
+    'Issue a new API key. The secret is returned once and never again. Prefer the least privilege the job needs: `scopes` limits what it can do, `cbids` locks it to specific sites (it then cannot reach anything org-wide), `expiresInDays` retires it. Omitting all three mints a full-access, org-wide, non-expiring key.',
+    {
+      name: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      cbids: z.array(z.string()).min(1).optional(),
+      expiresInDays: z.number().int().min(1).max(3650).optional(),
+    },
+    (a) =>
+      client.keys.issue({
+        ...(a.name ? { name: a.name as string } : {}),
+        ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
+        ...(a.cbids ? { cbids: a.cbids as string[] } : {}),
+        ...(a.expiresInDays !== undefined ? { expiresInDays: a.expiresInDays as number } : {}),
+      }),
+  );
+
+  tool('revoke_api_key', 'Revoke an API key by its prefix. Takes effect immediately; anything using that key stops working.', { prefix: z.string() }, async (a) => {
+    await client.keys.revoke(a.prefix as string);
+    return { revoked: a.prefix };
+  });
+
+  tool(
+    'roll_api_key',
+    'Rotate an API key: returns a new secret once, with the same name, scopes, property lock and expiry. The old secret stops working immediately — if it is the key this server runs with, this server stops working too until it is reconfigured.',
+    { prefix: z.string() },
+    (a) => client.keys.roll(a.prefix as string),
+  );
+
+  tool(
+    'update_api_key',
+    'Rename an API key, or replace its scopes or the properties it is locked to. Only the fields given change; the secret does not.',
+    {
+      prefix: z.string(),
+      name: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      cbids: z.array(z.string()).min(1).optional(),
+    },
+    (a) =>
+      client.keys.update(a.prefix as string, {
+        ...(a.name !== undefined ? { name: a.name as string } : {}),
+        ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
+        ...(a.cbids ? { cbids: a.cbids as string[] } : {}),
+      }),
+  );
+
+  // ---- organisation ----
+  tool('get_org', 'Your organisation: id, name, plan and logo URL. Read-only.', {}, () => client.org.get());
+
+  tool(
+    'update_org',
+    'Rename your organisation or set its logo. logoUrl: null removes the logo; upload an image with upload_asset to get a URL. Deleting the organisation is not possible here.',
+    { name: z.string().min(1).optional(), logoUrl: z.string().nullable().optional() },
+    (a) =>
+      client.org.update({
+        ...(a.name !== undefined ? { name: a.name as string } : {}),
+        ...(a.logoUrl !== undefined ? { logoUrl: a.logoUrl as string | null } : {}),
+      }),
+  );
+
+  tool(
+    'get_audit_log',
+    'The organisation’s audit log, newest first: administrative changes made in the dashboard or through the API, and who made them. Read-only.',
+    { limit: z.number().int().min(1).max(500).optional() },
+    (a) => client.audit(a.limit as number | undefined),
+  );
+
+  tool(
+    'upload_asset',
+    'Upload an image — a banner logo — and get its public URL. data is base64 (a data: URL also works); PNG, JPEG, WebP, GIF or SVG, up to 1,000,000 bytes.',
+    {
+      data: z.string(),
+      contentType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml']),
+    },
+    (a) => client.assets.upload({ data: a.data as string, contentType: a.contentType as 'image/png' }),
+  );
+
+  // ---- reseller ----
+  tool(
+    'list_customers',
+    'The child orgs this reseller has provisioned, with pooled usage against the reseller plan’s cap. Read-only.',
+    {},
+    () => client.reseller.list(),
+  );
+
+  tool('get_customer', 'One child org: its controller details and usage. Read-only.', { id: z.string() }, (a) =>
+    client.reseller.get(a.id as string),
+  );
+
+  tool(
+    'provision_customer',
+    'Create a new child org under this reseller. With `mintKey`, its first API key is returned once. Counts toward the reseller plan’s pooled limits.',
+    {
+      name: z.string(),
+      ownerEmail: z.string().optional(),
+      delegatedAccess: z.boolean().optional().describe('Whether this reseller may act inside the child.'),
+      mintKey: z.boolean().optional(),
+      keyScopes: z.array(z.string()).optional(),
+    },
+    (a) =>
+      client.reseller.create({
+        name: a.name as string,
+        ...(a.ownerEmail ? { ownerEmail: a.ownerEmail as string } : {}),
+        ...(a.delegatedAccess !== undefined ? { delegatedAccess: a.delegatedAccess as boolean } : {}),
+        ...(a.mintKey !== undefined ? { mintKey: a.mintKey as boolean } : {}),
+        ...(a.keyScopes ? { keyScopes: a.keyScopes as string[] } : {}),
+      }),
+  );
+
+  tool(
+    'update_customer',
+    'Change a child org’s status, delegated access or DSAR routing. `dsarRouting: null` clears the override.',
+    {
+      id: z.string(),
+      status: z.enum(['active', 'suspended']).optional(),
+      delegatedAccess: z.boolean().optional(),
+      dsarRouting: z.enum(['reseller', 'child']).nullable().optional(),
+    },
+    (a) =>
+      client.reseller.update(a.id as string, {
+        ...(a.status ? { status: a.status as 'active' | 'suspended' } : {}),
+        ...(a.delegatedAccess !== undefined ? { delegatedAccess: a.delegatedAccess as boolean } : {}),
+        ...(a.dsarRouting !== undefined ? { dsarRouting: a.dsarRouting as 'reseller' | 'child' | null } : {}),
+      }),
+  );
+
+  // Suspend only. The API's purge option hard-deletes a customer org and all of its data;
+  // that is not something to leave one agent call away, so this tool cannot pass it.
+  tool(
+    'suspend_customer',
+    'Suspend a child org: it stops ingesting consent and its keys stop working, and it can be reactivated with update_customer. Its data is kept. (Permanent deletion is deliberately not available here.)',
+    { id: z.string() },
+    async (a) => {
+      await client.reseller.deprovision(a.id as string);
+      return { suspended: a.id };
+    },
+  );
+
+  tool('list_customer_keys', "A child org's API key prefixes. Never the secrets. Read-only.", { id: z.string() }, (a) =>
+    client.reseller.listKeys(a.id as string),
+  );
+
+  tool(
+    'issue_customer_key',
+    "Mint an API key for a child org. The secret is returned once. Prefer scopes and a property lock over a full-access key.",
+    { id: z.string(), name: z.string().optional(), scopes: z.array(z.string()).optional(), cbids: z.array(z.string()).min(1).optional() },
+    (a) =>
+      client.reseller.mintKey(a.id as string, {
+        ...(a.name ? { name: a.name as string } : {}),
+        ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
+        ...(a.cbids ? { cbids: a.cbids as string[] } : {}),
+      }),
+  );
+
+  tool('revoke_customer_key', "Revoke a child org's API key by prefix. Takes effect immediately.", { id: z.string(), prefix: z.string() }, async (a) => {
+    await client.reseller.revokeKey(a.id as string, a.prefix as string);
+    return { revoked: a.prefix };
+  });
 
   tool(
     'erase_subject_data',
@@ -452,6 +759,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     await client.banners.delete(a.id as string);
     return { ok: true };
   });
+
+  tool(
+    'get_banner_assignments',
+    'The sites (cbids) a banner design is currently assigned to. Read-only.',
+    { id: z.string() },
+    (a) => client.banners.assignments(a.id as string),
+  );
 
   tool(
     'assign_banner',
