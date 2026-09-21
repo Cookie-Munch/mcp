@@ -578,6 +578,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   });
 
   tool(
+    'get_blocked_pages',
+    'Pages where the embed could not load its banner renderer — the page’s Content Security Policy or Trusted Types policy refused it, so nobody there can be asked for consent. An empty list is healthy. Read-only.',
+    { cbid: z.string() },
+    (a) => client.sites.blocked(a.cbid as string),
+  );
+
+  tool(
     'roll_api_key',
     'Rotate an API key: returns a new secret once, with the same name, scopes, property lock and expiry. The old secret stops working immediately — if it is the key this server runs with, this server stops working too until it is reconfigured.',
     { prefix: z.string() },

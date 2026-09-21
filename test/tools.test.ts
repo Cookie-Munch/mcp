@@ -275,6 +275,7 @@ const EXPECTED_TOOLS = [
   'get_audit_log',
   'upload_asset',
   'delete_asset',
+  'get_blocked_pages',
   'roll_webhook_secret',
   'test_webhook',
   'list_webhook_dead_letters',
