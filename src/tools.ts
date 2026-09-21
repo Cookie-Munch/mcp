@@ -632,6 +632,16 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     (a) => client.assets.upload({ data: a.data as string, contentType: a.contentType as 'image/png' }),
   );
 
+  tool(
+    'delete_asset',
+    'Delete a stored image by its URL (or file name). Only your own organisation’s images can be named.',
+    { url: z.string().describe('The URL upload_asset returned, or just its file name.') },
+    async (a) => {
+      await client.assets.delete(a.url as string);
+      return { deleted: a.url };
+    },
+  );
+
   // ---- reseller ----
   tool(
     'list_customers',
