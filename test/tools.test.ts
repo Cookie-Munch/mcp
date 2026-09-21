@@ -210,6 +210,7 @@ const EXPECTED_TOOLS = [
   // Task 3: structured config tools
   'set_blocking',
   'set_geo_rules',
+  'list_supported_languages',
   'set_languages',
   'set_consent_mode',
   'set_ab_experiment',
@@ -276,6 +277,7 @@ const EXPECTED_TOOLS = [
   'upload_asset',
   'delete_asset',
   'get_blocked_pages',
+  'import_cookie_declaration',
   'roll_webhook_secret',
   'test_webhook',
   'list_webhook_dead_letters',

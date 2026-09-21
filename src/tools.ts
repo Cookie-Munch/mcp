@@ -578,6 +578,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   });
 
   tool(
+    'import_cookie_declaration',
+    'Read a cookie declaration exported from another CMP (OneTrust, Cookiebot, CookieYes, or any CSV/JSON with the same columns) and translate its categories into ours. Nothing is applied — it comes back for review, with the rows whose category could not be placed listed separately.',
+    { cbid: z.string(), data: z.string().describe('The exported file, as text (CSV or JSON).') },
+    (a) => client.sites.importDeclaration(a.cbid as string, a.data as string),
+  );
+
+  tool(
     'get_blocked_pages',
     'Pages where the embed could not load its banner renderer — the page’s Content Security Policy or Trusted Types policy refused it, so nobody there can be asked for consent. An empty list is healthy. Read-only.',
     { cbid: z.string() },

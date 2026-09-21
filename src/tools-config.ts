@@ -72,6 +72,13 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     },
   );
 
+  tool(
+    'list_supported_languages',
+    'The languages the banner already has copy for, with their English name, their name in themselves, whether they read right to left, and whether they ship in the base embed or in the renderer. Check this before writing translations with set_languages — the ones listed here need none. Read-only.',
+    {},
+    () => client.languages(),
+  );
+
   const setLanguagesSchema = z.object({
     cbid: z.string().describe('Site identifier (cbid).'),
     defaultCulture: z.string().optional().describe('Default locale/culture code, e.g. "en", "fr". Stored in i18n.defaultCulture.'),
