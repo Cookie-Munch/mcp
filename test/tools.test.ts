@@ -211,6 +211,7 @@ const EXPECTED_TOOLS = [
   'set_blocking',
   'set_geo_rules',
   'list_supported_languages',
+  'set_identity_sources',
   'set_languages',
   'set_consent_mode',
   'set_ab_experiment',

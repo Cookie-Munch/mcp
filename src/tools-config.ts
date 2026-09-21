@@ -79,6 +79,29 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     () => client.languages(),
   );
 
+  const identitySourceSchema = z.object({
+    name: z.string().describe('What you call the identifier, e.g. "customerId" or "email".'),
+    from: z.enum(['dataLayer', 'window', 'cookie', 'localStorage', 'query', 'meta']).describe('Where the page keeps it.'),
+    key: z.string().describe('Dotted path for dataLayer/window; cookie, storage key, query parameter or meta name otherwise.'),
+    hash: z.boolean().optional().describe('Default true: SHA-256 the trimmed, lowercased value in the browser. false for an opaque id.'),
+  });
+  const setIdentitySourcesSchema = z.object({
+    cbid: z.string().describe('Site identifier (cbid).'),
+    sources: z.array(identitySourceSchema).describe('In priority order; the first with a value becomes the consent record\'s subjectId. Empty array removes them.'),
+  });
+
+  tool(
+    'set_identity_sources',
+    'Tell the web embed where a site keeps its signed-in customer (data layer, window object, cookie, local storage, query parameter or meta tag), so consent records carry that customer\'s subjectId and can be read with GET /v1/subjects/:id/consent. Values are hashed in the browser unless a source sets hash:false. Fetches the current config, patches only identity, and PUTs.',
+    setIdentitySourcesSchema.shape,
+    async (a) => {
+      const { cbid: siteId, sources } = setIdentitySourcesSchema.parse(a);
+      const cfg = (await client.sites.getConfig(siteId)) as Record<string, unknown>;
+      const { identity: _old, ...rest } = cfg;
+      return client.sites.putConfig(siteId, sources.length > 0 ? { ...rest, identity: { sources } } : rest);
+    },
+  );
+
   const setLanguagesSchema = z.object({
     cbid: z.string().describe('Site identifier (cbid).'),
     defaultCulture: z.string().optional().describe('Default locale/culture code, e.g. "en", "fr". Stored in i18n.defaultCulture.'),
