@@ -351,6 +351,44 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'list_dsar_executors',
+    'Systems connected to run part of a rights request themselves — today an Atlas instance holding the customer\'s user identities. The in-VPC agent covers systems we cannot reach; these are the ones we can. Never returns credentials. Read-only.',
+    {},
+    () => client.fulfillment.executors(),
+  );
+
+  tool(
+    'connect_dsar_executor',
+    'Connect a system that executes the identity half of a rights request. The secret key is stored encrypted and never returned; the response carries the webhook URL to configure in that system. Sub-tasks open automatically once a request reaches fulfilment (after identity verification), and completions are picked up by webhook or by polling.',
+    {
+      kind: z.literal('atlas'),
+      baseUrl: z.string().describe("The system's public https origin."),
+      secretKey: z.string().describe('Its API key. Needs data_subject_requests:write, data_subject_requests:read and users:read.'),
+      webhookSecret: z.string().optional().describe('Signing secret of its webhook endpoint. Optional: polling closes tasks without it.'),
+      system: z.string().optional().describe('The name it answers to in a plan. Defaults to the kind.'),
+      auto: z.boolean().optional().describe('Open a sub-task automatically when a request reaches fulfilment. Default true.'),
+    },
+    (a) => client.fulfillment.connectExecutor(a as never),
+  );
+
+  tool(
+    'disconnect_dsar_executor',
+    'Disconnect a system. Its open sub-tasks stop being driven, and the stored credentials are deleted.',
+    { id: z.string() },
+    async (a) => {
+      await client.fulfillment.disconnectExecutor(a.id as string);
+      return { disconnected: a.id };
+    },
+  );
+
+  tool(
+    'get_dsar_task_export',
+    'The export bundle a connected system produced for one sub-task, fetched from that system on demand. The platform keeps no copy.',
+    { requestId: z.string(), taskId: z.string() },
+    (a) => client.fulfillment.taskExport(a.requestId as string, a.taskId as string),
+  );
+
+  tool(
     'get_dsr_fulfillment_status',
     'Per-system fulfillment status for one request ("n of m systems done"), including which systems failed and why.',
     { requestId: z.string() },
