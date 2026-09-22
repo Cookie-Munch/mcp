@@ -352,21 +352,23 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
 
   tool(
     'list_dsar_executors',
-    'Systems connected to run part of a rights request themselves — today an Atlas instance holding the customer\'s user identities. The in-VPC agent covers systems we cannot reach; these are the ones we can. Never returns credentials. Read-only.',
+    'Systems connected to run part of a rights request themselves — an identity platform, a CRM, anything with a rights API. The in-VPC agent covers systems we cannot reach; these are the ones we can. Each carries the profile that describes its API. Never returns credentials. Read-only.',
     {},
     () => client.fulfillment.executors(),
   );
 
   tool(
     'connect_dsar_executor',
-    'Connect a system that executes the identity half of a rights request. The secret key is stored encrypted and never returned; the response carries the webhook URL to configure in that system. Sub-tasks open automatically once a request reaches fulfilment (after identity verification), and completions are picked up by webhook or by polling.',
+    'Connect a system that runs part of a rights request — an identity platform, a CRM, anything with a rights API. Cookie Munch is not specific to any platform: the `profile` describes that system\'s API (paths, the words it uses for export/erase, its status vocabulary, how it signs webhooks), so connecting a new one needs no code. The secret key is stored encrypted and never returned; the response carries the webhook URL to configure in that system. Sub-tasks open automatically once a request reaches fulfilment (after identity verification), and completions are picked up by webhook or by polling.',
     {
-      kind: z.literal('atlas'),
+      system: z.string().describe('The name this connection answers to in a plan, e.g. identity or crm.'),
       baseUrl: z.string().describe("The system's public https origin."),
-      secretKey: z.string().describe('Its API key. Needs data_subject_requests:write, data_subject_requests:read and users:read.'),
+      secretKey: z.string().describe('Its API key, with whatever scope that system needs to export and erase a user.'),
       webhookSecret: z.string().optional().describe('Signing secret of its webhook endpoint. Optional: polling closes tasks without it.'),
-      system: z.string().optional().describe('The name it answers to in a plan. Defaults to the kind.'),
       auto: z.boolean().optional().describe('Open a sub-task automatically when a request reaches fulfilment. Default true.'),
+      profile: z
+        .record(z.unknown())
+        .describe('How to drive that system: { open, poll, statuses } required, plus optional subjectLookup, auth, idempotencyHeader and webhook. See the connected-systems docs for the shape.'),
     },
     (a) => client.fulfillment.connectExecutor(a as never),
   );
