@@ -48,6 +48,7 @@ function mockClient(): CookieMunchClient {
       setFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
     },
     consent: {
+      verify: vi.fn(async () => ({ valid: true })),
       stats: vi.fn(async () => []),
       log: vi.fn(async () => []),
       export: vi.fn(async () => 'csv'),
@@ -183,6 +184,7 @@ const EXPECTED_TOOLS = [
   'get_site_config',
   'update_site_config',
   'patch_site_config',
+  'verify_consent_log',
   'get_consent_stats',
   'get_consent_log',
   'get_dsar',
@@ -375,6 +377,14 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('update_site_config').handler({ cbid: 'a', config: { banner: { layout: 'bottom' } } });
     expect(client.sites.putConfig).toHaveBeenCalledWith('a', { banner: { layout: 'bottom' } });
+  });
+
+  it('verify_consent_log asks the server to re-walk the hash chain', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('verify_consent_log').handler({ cbid: 'a' });
+    expect(client.consent.verify).toHaveBeenCalledWith('a');
   });
 
   it('patch_site_config merges server-side rather than replacing', async () => {

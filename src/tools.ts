@@ -162,6 +162,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'verify_consent_log',
+    "Verify a site's consent log has not been tampered with. Each record carries the hash of the one before it, so an edited, reordered or deleted record breaks the chain and this returns valid: false. This is the evidence behind a consent log — what you check when someone asks whether the record can be trusted, not just what it says.",
+    { ...cbid },
+    (a) => client.consent.verify(a.cbid as string),
+  );
+
+  tool(
     'get_consent_stats',
     'Get aggregated per-day consent statistics for a site.',
     { ...cbid, ...range },
