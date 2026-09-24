@@ -149,9 +149,16 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'update_site_config',
-    'Replace (overwrite) the banner/consent configuration for a site via PUT. This is destructive, not a merge: any top-level SiteConfig field you omit from `config` reverts to its default rather than keeping its current value. Call get_site_config first, apply your changes to the result, and pass the full merged object back (read-modify-write). Prefer the narrower set_* tools (set_blocking, set_banner_basics, etc.) when they cover your change, since those already do the read-modify-write for you.',
+    'Replace (overwrite) the banner/consent configuration for a site via PUT. This is destructive, not a merge: any top-level SiteConfig field you omit from `config` reverts to its default rather than keeping its current value. To change one setting, use patch_site_config instead — it merges server-side. Prefer the narrower set_* tools (set_blocking, set_banner_basics, etc.) when they cover your change.',
     { ...cbid, config: z.record(z.unknown()).describe('The full SiteConfig to write, not a patch. Omitted top-level fields are NOT preserved from the current config — fetch get_site_config first and merge client-side.') },
     (a) => client.sites.putConfig(a.cbid as string, a.config as Record<string, unknown>),
+  );
+
+  tool(
+    'patch_site_config',
+    'Change part of a site\'s banner/consent configuration. The patch is deep-merged over the stored config server-side, so any field you omit keeps its current value — this is the safe way to flip one setting, and it needs no read-modify-write. Use update_site_config only when you genuinely mean to replace the whole document.',
+    { ...cbid, config: z.record(z.unknown()).describe('The subset of SiteConfig to change, e.g. { "banner": { "showRightsLink": true } }. Everything else is preserved.') },
+    (a) => client.sites.patchConfig(a.cbid as string, a.config as Record<string, unknown>),
   );
 
   tool(
@@ -181,6 +188,18 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
+  tool(
+    'update_dsar_executor',
+    'Change a connected system in place — its profile, address, credential or auto flag. Only what you pass changes; the stored credential is kept unless you give a new one.',
+    { id: z.string(), patch: z.record(z.unknown()) },
+    (a) => client.fulfillment.updateExecutor(a.id as string, a.patch as Record<string, unknown>),
+  );
+  tool(
+    'get_dsar',
+    'One rights request by id, including its status and the deadline it must be answered by.',
+    { id: z.string() },
+    (a) => client.dsar.get(a.id as string),
+  );
   tool(
     'erase_dsar_subject',
     'For a deletion request that is past identity verification: erase the person’s consent records on one site, identified by their consent stamp. Irreversible. The erasure is noted on the request. If the response carries a warning, nothing was cryptographically erased — tell the user.',

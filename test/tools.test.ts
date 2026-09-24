@@ -30,6 +30,7 @@ function mockClient(): CookieMunchClient {
       delete: vi.fn(async () => undefined),
       getConfig: vi.fn(async () => ({ cbid: 'a' })),
       putConfig: vi.fn(async () => ({ cbid: 'a', banner: {} })),
+      patchConfig: vi.fn(async () => ({ cbid: 'a', banner: {} })),
       cookies: vi.fn(async () => []),
       scan: vi.fn(async () => ({ scanId: 's1', status: 'queued' })),
       scanStatus: vi.fn(async () => ({ scanId: 's1', status: 'complete' })),
@@ -181,8 +182,11 @@ const EXPECTED_TOOLS = [
   'create_site',
   'get_site_config',
   'update_site_config',
+  'patch_site_config',
   'get_consent_stats',
   'get_consent_log',
+  'get_dsar',
+  'update_dsar_executor',
   'list_dsar',
   'create_dsar',
   'advance_dsar',
@@ -371,6 +375,15 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('update_site_config').handler({ cbid: 'a', config: { banner: { layout: 'bottom' } } });
     expect(client.sites.putConfig).toHaveBeenCalledWith('a', { banner: { layout: 'bottom' } });
+  });
+
+  it('patch_site_config merges server-side rather than replacing', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('patch_site_config').handler({ cbid: 'a', config: { banner: { showRightsLink: true } } });
+    expect(client.sites.patchConfig).toHaveBeenCalledWith('a', { banner: { showRightsLink: true } });
+    expect(client.sites.putConfig).not.toHaveBeenCalled();
   });
 
   it('get_consent_stats passes the from/to range', async () => {
