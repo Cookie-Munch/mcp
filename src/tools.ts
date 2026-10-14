@@ -160,27 +160,39 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'update_site_config',
-    'Replace (overwrite) the banner/consent configuration for a site via PUT. This is destructive, not a merge: any top-level SiteConfig field you omit from `config` reverts to its default rather than keeping its current value. To change one setting, use patch_site_config instead — it merges server-side. Prefer the narrower set_* tools (set_blocking, set_banner_basics, etc.) when they cover your change.',
-    { ...cbid, config: z.record(z.unknown()).describe('The full SiteConfig to write, not a patch. Omitted top-level fields are NOT preserved from the current config — fetch get_site_config first and merge client-side.') },
-    (a) => client.sites.putConfig(a.cbid as string, a.config as Record<string, unknown>),
+    'Replace (overwrite) the banner/consent configuration for a site via PUT. This is destructive, not a merge: any top-level SiteConfig field you omit from `config` reverts to its default rather than keeping its current value — unless keepUnspecified is true, in which case omitted top-level fields keep their stored value and only the fields you send are replaced (each whole). A top-level field sent as null reverts to its default. To change one setting, use patch_site_config instead — it merges server-side. Prefer the narrower set_* tools (set_blocking, set_banner_basics, etc.) when they cover your change.',
+    {
+      ...cbid,
+      config: z.record(z.unknown()).describe('The full SiteConfig to write, not a patch. Without keepUnspecified, omitted top-level fields are NOT preserved from the current config.'),
+      keepUnspecified: z.boolean().optional().describe('PUT ?keep=unspecified: keep the stored value of every top-level field `config` omits, instead of reverting it to its default.'),
+    },
+    (a) =>
+      a.keepUnspecified === true
+        ? client.sites.putConfig(a.cbid as string, a.config as Record<string, unknown>, { keep: 'unspecified' })
+        : client.sites.putConfig(a.cbid as string, a.config as Record<string, unknown>),
   );
 
   tool(
     'patch_site_config',
-    'Change part of a site\'s banner/consent configuration. The patch is deep-merged over the stored config server-side, so any field you omit keeps its current value — this is the safe way to flip one setting, and it needs no read-modify-write. Use update_site_config only when you genuinely mean to replace the whole document.',
-    { ...cbid, config: z.record(z.unknown()).describe('The subset of SiteConfig to change, e.g. { "banner": { "showRightsLink": true } }. Everything else is preserved.') },
+    'Change part of a site\'s banner/consent configuration. The patch is a JSON Merge Patch (RFC 7386) over the stored config server-side: any field you omit keeps its current value, and a field set to null is REMOVED (it falls back to its default) — e.g. { "banner": { "i18n": { "es": null } } } drops the Spanish override. This is the safe way to flip one setting, and it needs no read-modify-write. Use update_site_config only when you genuinely mean to replace the whole document.',
+    { ...cbid, config: z.record(z.unknown()).describe('The subset of SiteConfig to change, e.g. { "banner": { "showRightsLink": true } }. Everything else is preserved; null removes a field.') },
     (a) => client.sites.patchConfig(a.cbid as string, a.config as Record<string, unknown>),
   );
 
   tool(
     'preview_site_config',
-    'Preview a config change WITHOUT saving it: returns the config as it would be saved, a diff of every field that would change, and any warnings (plan-gated or unrecognised fields). mode "patch" (default) previews patch_site_config; mode "put" previews update_site_config, and its diff lists everything a replace would revert to its default. Use it before any write you are not sure of.',
+    'Preview a config change WITHOUT saving it: returns the config as it would be saved, a diff of every field that would change, and any warnings (plan-gated or unrecognised fields). mode "patch" (default) previews patch_site_config; mode "put" previews update_site_config, and its diff lists everything a replace would revert to its default (unless keepUnspecified is true). Use it before any write you are not sure of.',
     {
       ...cbid,
       config: z.record(z.unknown()).describe('The patch (or, with mode "put", the full config) to preview.'),
       mode: z.enum(['patch', 'put']).optional().describe('patch (default) merges; put replaces.'),
+      keepUnspecified: z.boolean().optional().describe('With mode "put": preview update_site_config with keepUnspecified (omitted top-level fields keep their stored value).'),
     },
-    (a) => client.sites.dryRunConfig(a.cbid as string, a.config as Record<string, unknown>, { mode: (a.mode as 'patch' | 'put' | undefined) ?? 'patch' }),
+    (a) =>
+      client.sites.dryRunConfig(a.cbid as string, a.config as Record<string, unknown>, {
+        mode: (a.mode as 'patch' | 'put' | undefined) ?? 'patch',
+        ...(a.keepUnspecified === true ? { keep: 'unspecified' as const } : {}),
+      }),
   );
 
   tool(
@@ -279,6 +291,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       await client.dsar.delete(a.id as string);
       return { deleted: a.id };
     },
+  );
+
+  tool(
+    'mark_dsar_test',
+    'Mark a CLOSED rights request (completed or rejected) as a test request, after the fact — for trial requests filed before test: true existed. An open request is refused (request_not_closed), so a live obligation can never be relabelled. Recorded in the audit log; afterwards delete_test_dsar can remove it. Returns { request, changed }.',
+    { id: z.string().describe('The closed request id.') },
+    (a) => client.dsar.markTest(a.id as string),
   );
 
   tool(
@@ -645,6 +664,50 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Read a cookie declaration exported from another CMP (OneTrust, Cookiebot, CookieYes, or any CSV/JSON with the same columns) and translate its categories into ours. Nothing is applied — it comes back for review, with the rows whose category could not be placed listed separately.',
     { cbid: z.string(), data: z.string().describe('The exported file, as text (CSV or JSON).') },
     (a) => client.sites.importDeclaration(a.cbid as string, a.data as string),
+  );
+
+  tool(
+    'apply_cookie_import',
+    'Import a cookie declaration exported from another CMP AND declare it: every row whose category mapped to ours and that has a purpose becomes a site declaration; the rest come back in `skipped` with the reason. Cookies the site already declared are kept unless overwrite is true. Prefer import_cookie_declaration first to review.',
+    { cbid: z.string(), data: z.string().describe('The exported file, as text (CSV or JSON).'), overwrite: z.boolean().optional() },
+    (a) => client.sites.applyImport(a.cbid as string, a.data as string, a.overwrite ? { overwrite: true } : undefined),
+  );
+
+  const declarationShape = {
+    category: z.string().describe('necessary, preferences, statistics, marketing, or one of the site’s categories.custom ids.'),
+    purpose: z.string().describe('What the cookie does, as visitors will read it.'),
+    provider: z.string().optional(),
+    expiry: z.string().optional().describe('e.g. "Session", "30 days", "1 year" (the banner localises these forms).'),
+    domain: z.string().optional(),
+    pattern: z.boolean().optional().describe('Treat the name as a prefix wildcard (a trailing * does the same).'),
+  };
+
+  tool(
+    'declare_cookie',
+    'Declare what one of the site’s cookies is. Overrides the scanner, observed visits and the cookie database everywhere the declaration is shown (API, preference modal, data-cc="declaration"). Use for the site’s own cookies the database cannot know. A name ending in * covers every cookie with that prefix.',
+    { cbid: z.string(), name: z.string(), ...declarationShape },
+    (a) => {
+      const { cbid, name, ...rest } = a as { cbid: string; name: string } & Record<string, unknown>;
+      return client.sites.declareCookie(cbid, name, rest as never);
+    },
+  );
+
+  tool(
+    'declare_cookies',
+    'Declare many cookies at once. All-or-nothing: one invalid item refuses the whole request and nothing is saved. replace: true also removes every declaration the list does not name.',
+    { cbid: z.string(), cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500), replace: z.boolean().optional() },
+    (a) =>
+      client.sites.declareCookies(a.cbid as string, a.cookies as never, a.replace ? { replace: true } : undefined),
+  );
+
+  tool(
+    'undeclare_cookie',
+    'Remove a cookie declaration; the scanned/observed classification applies again.',
+    { cbid: z.string(), name: z.string() },
+    async (a) => {
+      await client.sites.undeclareCookie(a.cbid as string, a.name as string);
+      return { undeclared: a.name };
+    },
   );
 
   tool(

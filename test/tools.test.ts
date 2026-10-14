@@ -65,6 +65,7 @@ function mockClient(): CookieMunchClient {
       list: vi.fn(async () => []),
       create: vi.fn(async () => ({ request: { id: 'd1' } as never })),
       advance: vi.fn(async () => ({ request: { id: 'd1', status: 'verifying' } as never })),
+      markTest: vi.fn(async () => ({ request: { id: 'd1', test: true } as never, changed: true })),
     },
     vendors: {
       list: vi.fn(async () => []),
@@ -201,6 +202,7 @@ const EXPECTED_TOOLS = [
   'list_dsar',
   'create_dsar',
   'delete_test_dsar',
+  'mark_dsar_test',
   'advance_dsar',
   'export_consent',
   'get_receipt',
@@ -300,6 +302,10 @@ const EXPECTED_TOOLS = [
   'delete_asset',
   'get_blocked_pages',
   'import_cookie_declaration',
+  'apply_cookie_import',
+  'declare_cookie',
+  'declare_cookies',
+  'undeclare_cookie',
   'roll_webhook_secret',
   'test_webhook',
   'list_webhook_dead_letters',
@@ -397,6 +403,22 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('update_site_config').handler({ cbid: 'a', config: { banner: { layout: 'bottom' } } });
     expect(client.sites.putConfig).toHaveBeenCalledWith('a', { banner: { layout: 'bottom' } });
+  });
+
+  it('mark_dsar_test forwards the id to dsar.markTest (F-09)', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('mark_dsar_test').handler({ id: 'd1' });
+    expect(client.dsar.markTest).toHaveBeenCalledWith('d1');
+  });
+
+  it('update_site_config with keepUnspecified sends PUT ?keep=unspecified (F-05)', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('update_site_config').handler({ cbid: 'a', config: { defaultMode: 'opt-in' }, keepUnspecified: true });
+    expect(client.sites.putConfig).toHaveBeenCalledWith('a', { defaultMode: 'opt-in' }, { keep: 'unspecified' });
   });
 
   it('verify_consent_log asks the server to re-walk the hash chain', async () => {
