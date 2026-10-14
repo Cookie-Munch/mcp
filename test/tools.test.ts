@@ -22,7 +22,11 @@ function fakeServer() {
 /** A mock SDK client where every method is a spy returning a canned value. */
 function mockClient(): CookieMunchClient {
   return {
-    me: vi.fn(async () => ({ orgId: 'o1', plan: 'free', keyPrefix: 'fck_abcd' })),
+    me: vi.fn(async () => ({ orgId: 'o1', plan: 'free', planSource: 'org' as const, subscribedPlan: 'free', features: [], keyPrefix: 'fck_abcd' })),
+    orgs: {
+      list: vi.fn(async () => ({ orgs: [], orgLimit: { max: 1, plan: 'free', used: 1 }, upgradeUrl: 'https://cookiemunch.net/account#account-plans' })),
+      create: vi.fn(async () => ({ org: { id: 'o2', name: 'x', role: 'owner' } })),
+    },
     sites: {
       list: vi.fn(async () => [{ cbid: 'a', orgId: 'o1', domain: 'a.com' }]),
       create: vi.fn(async () => ({ cbid: 'new', orgId: 'o1', domain: 'x.com' })),
@@ -42,6 +46,7 @@ function mockClient(): CookieMunchClient {
         blockingMode: 'auto',
       })),
       verify: vi.fn(async () => ({ verified: true, method: 'dns' })),
+      previewToken: vi.fn(async () => ({ cbid: 'a', token: 't.s', expiresAt: 1, previewUrl: 'https://a.com/?cm_preview=t.s' })),
       brand: vi.fn(async () => ({ suggestion: { highlight: '#ff0000' } })),
       getFlow: vi.fn(async () => ({ v: 2, flow: { views: [] }, categories: {}, lint: [] })),
       editFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
@@ -173,17 +178,21 @@ const EXPECTED_TOOLS = [
   'connect_dsar_executor',
   'disconnect_dsar_executor',
   'get_dsar_task_export',
+  'get_dsar_task',
+  'test_dsar_executor',
   'get_dsr_fulfillment_status',
   'inspect_ai_prompt',
   'get_ai_inventory',
   'get_ai_lineage',
   // --- CMP tools ---
   'whoami',
+  'list_account_orgs',
   'list_sites',
   'create_site',
   'get_site_config',
   'update_site_config',
   'patch_site_config',
+  'preview_site_config',
   'verify_consent_log',
   'get_consent_stats',
   'get_consent_log',
@@ -191,6 +200,7 @@ const EXPECTED_TOOLS = [
   'update_dsar_executor',
   'list_dsar',
   'create_dsar',
+  'delete_test_dsar',
   'advance_dsar',
   'export_consent',
   'get_receipt',
@@ -215,6 +225,7 @@ const EXPECTED_TOOLS = [
   'edit_flow',
   'set_flow',
   'get_install_snippet',
+  'preview_banner',
   'verify_site',
   'match_site_brand',
   // Task 3: structured config tools
@@ -345,6 +356,15 @@ describe('registerTools', () => {
     const res = await byName('whoami').handler({});
     expect(client.me).toHaveBeenCalledOnce();
     expect(res.content[0]!.text).toContain('fck_abcd');
+  });
+
+  it('list_account_orgs calls client.orgs.list and returns the cap + upgrade URL', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    const res = await byName('list_account_orgs').handler({});
+    expect(client.orgs.list).toHaveBeenCalledOnce();
+    expect(res.content[0]!.text).toContain('account-plans');
   });
 
   it('list_sites calls client.sites.list', async () => {
@@ -487,6 +507,16 @@ describe('registerTools', () => {
     const res = await byName('get_install_snippet').handler({ cbid: 'a', blockingMode: 'checklist' });
     expect(res.isError).toBe(true);
     expect(client.sites.snippet).not.toHaveBeenCalled();
+  });
+
+  it('preview_banner mints a token for the region + language asked for', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    const res = await byName('preview_banner').handler({ cbid: 'a', region: 'eu', lang: 'de' });
+    expect(res.isError).toBeFalsy();
+    expect(client.sites.previewToken).toHaveBeenCalledWith('a', { region: 'eu', lang: 'de' });
+    expect(res.content[0]!.text).toContain('cm_preview');
   });
 
   it('verify_site forwards cbid + method', async () => {
@@ -688,6 +718,20 @@ describe('structured config tools', () => {
     expect(banner['layout']).toBe(BASELINE_CONFIG.banner.layout);
   });
 
+  it('set_languages: overrides → written per language to i18n.overrides, other languages kept', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const base = { ...BASELINE_CONFIG, i18n: { ...BASELINE_CONFIG.i18n, overrides: { fr: { banner: { title: 'Nos cookies' } } } } };
+    (client.sites.getConfig as ReturnType<typeof vi.fn>).mockResolvedValueOnce(base);
+    registerTools(server, client);
+    const overrides = { de: { banner: { body: 'Wir setzen ein Cookie.' }, categories: { marketing: { label: 'Empfehlungen' } } } };
+    await byName('set_languages').handler({ cbid: 'a', overrides });
+    const putArg = (client.sites.putConfig as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>;
+    const i18n = putArg['i18n'] as { overrides: Record<string, unknown>; defaultCulture: unknown };
+    expect(i18n.overrides).toEqual({ fr: { banner: { title: 'Nos cookies' } }, ...overrides });
+    expect(i18n.defaultCulture).toBe(BASELINE_CONFIG.i18n.defaultCulture);
+  });
+
   // --- set_consent_mode ---
 
   it('set_consent_mode: valid args → fetches config + PUTs consentMode changed, others preserved', async () => {
@@ -815,6 +859,32 @@ describe('structured config tools', () => {
     // Other top-level domains preserved
     expect(putArg['blocking']).toEqual(BASELINE_CONFIG.blocking);
     expect(putArg['consentMode']).toEqual(BASELINE_CONFIG.consentMode);
+  });
+
+  it('set_banner_basics: preset + density + secondLayer are written through', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    (client.sites.getConfig as ReturnType<typeof vi.fn>).mockResolvedValueOnce(BASELINE_CONFIG);
+    registerTools(server, client);
+    await byName('set_banner_basics').handler({ cbid: 'a', preset: 'bar', density: 'comfortable', content: { preferencesTitle: 'Your choices' } });
+    const banner = ((client.sites.putConfig as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>)['banner'] as Record<string, unknown>;
+    expect(banner['preset']).toBe('bar');
+    expect(banner['density']).toBe('comfortable');
+    expect((banner['content'] as Record<string, unknown>)['preferencesTitle']).toBe('Your choices');
+  });
+
+  it('set_banner_basics: a hand-set type drops a stored preset that would overwrite it', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    (client.sites.getConfig as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...BASELINE_CONFIG,
+      banner: { ...BASELINE_CONFIG.banner, preset: 'bar' },
+    });
+    registerTools(server, client);
+    await byName('set_banner_basics').handler({ cbid: 'a', type: 'accept-decline' });
+    const banner = ((client.sites.putConfig as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>)['banner'] as Record<string, unknown>;
+    expect(banner['type']).toBe('accept-decline');
+    expect('preset' in banner).toBe(false);
   });
 
   it('set_banner_basics: theme record merged onto existing banner theme', async () => {

@@ -384,6 +384,30 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'get_dsar_task',
+    'One fulfilment task in detail: its status history, what it means for the person (exported, no record, done without an export…), every request Cookie Munch made to the connected system on its behalf with the answer it got (credentials removed, kept 30 days), and whether that system was redeployed mid-request. Read-only. Use it to explain why a system answered the way it did.',
+    { requestId: z.string(), taskId: z.string() },
+    (a) => client.fulfillment.task(a.requestId as string, a.taskId as string),
+  );
+
+  tool(
+    'test_dsar_executor',
+    'Try a connected system against one email WITHOUT filing a rights request. Runs its subject lookup and returns the raw upstream answers (credentials removed) and a one-line verdict. The open step is rendered but not sent, unless open is true on an export, which opens and polls a real export once. An erasure is never sent by a test.',
+    {
+      id: z.string().describe('The connection id.'),
+      email: z.string().describe('The address to look up.'),
+      operation: z.enum(['locate', 'export', 'erase']).optional().describe('Default locate.'),
+      open: z.boolean().optional().describe('For export only: open a real export and poll it once.'),
+    },
+    (a) =>
+      client.fulfillment.testExecutor(a.id as string, {
+        email: a.email as string,
+        ...(a.operation ? { operation: a.operation as 'locate' | 'export' | 'erase' } : {}),
+        ...(typeof a.open === 'boolean' ? { open: a.open } : {}),
+      }),
+  );
+
+  tool(
     'get_dsar_task_export',
     'The export bundle a connected system produced for one sub-task, fetched from that system on demand. The platform keeps no copy.',
     { requestId: z.string(), taskId: z.string() },

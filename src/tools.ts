@@ -70,7 +70,18 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     to: z.number().optional().describe('Epoch-ms upper bound.'),
   };
 
-  tool('whoami', 'Return the identity tied to the API key: orgId, plan, and key prefix.', {}, () => client.me());
+  tool(
+    'whoami',
+    'Return the identity tied to the API key: orgId and name, the effective plan with planSource (org = its own subscription, account = covered by a higher plan another org on the same account pays for) and the features it unlocks, and the key\u2019s scopes.',
+    {},
+    () => client.me(),
+  );
+  tool(
+    'list_account_orgs',
+    'The organisations on this key\u2019s account, each with its effective plan and planSource, plus the per-account org cap (max/used) and the upgrade URL. Read-only; needs an unscoped key.',
+    {},
+    () => client.orgs.list(),
+  );
 
   tool('list_sites', 'List all sites (cbids) in your organization.', {}, () => client.sites.list());
   tool('get_site', 'One site: its domain, cbid and verification status. Read-only.', { cbid: z.string() }, (a) =>
@@ -162,6 +173,17 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'preview_site_config',
+    'Preview a config change WITHOUT saving it: returns the config as it would be saved, a diff of every field that would change, and any warnings (plan-gated or unrecognised fields). mode "patch" (default) previews patch_site_config; mode "put" previews update_site_config, and its diff lists everything a replace would revert to its default. Use it before any write you are not sure of.',
+    {
+      ...cbid,
+      config: z.record(z.unknown()).describe('The patch (or, with mode "put", the full config) to preview.'),
+      mode: z.enum(['patch', 'put']).optional().describe('patch (default) merges; put replaces.'),
+    },
+    (a) => client.sites.dryRunConfig(a.cbid as string, a.config as Record<string, unknown>, { mode: (a.mode as 'patch' | 'put' | undefined) ?? 'patch' }),
+  );
+
+  tool(
     'verify_consent_log',
     "Verify a site's consent log has not been tampered with. Each record carries the hash of the one before it, so an edited, reordered or deleted record breaks the chain and this returns valid: false. This is the evidence behind a consent log — what you check when someone asks whether the record can be trusted, not just what it says.",
     { ...cbid },
@@ -234,6 +256,10 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       subjectEmail: z.string().describe('The data subject’s email.'),
       regulation: z.enum(['gdpr', 'ccpa']).describe('Governing regulation.'),
       note: z.string().optional().describe('Optional free-text note.'),
+      test: z
+        .boolean()
+        .optional()
+        .describe('Mark it as a test request: kept off the SLA board and deletable afterwards with delete_test_dsar.'),
     },
     (a) =>
       client.dsar.create({
@@ -241,7 +267,18 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         subjectEmail: a.subjectEmail as string,
         regulation: a.regulation as never,
         ...(typeof a.note === 'string' ? { note: a.note } : {}),
+        ...(a.test === true ? { test: true } : {}),
       }),
+  );
+
+  tool(
+    'delete_test_dsar',
+    'Delete a TEST rights request (one created with test: true), with its tasks and their upstream log. Real requests cannot be deleted and are refused. The deletion is recorded in the audit log.',
+    { id: z.string().describe('The test request id.') },
+    async (a) => {
+      await client.dsar.delete(a.id as string);
+      return { deleted: a.id };
+    },
   );
 
   tool(

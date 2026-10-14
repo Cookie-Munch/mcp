@@ -107,14 +107,18 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     defaultCulture: z.string().optional().describe('Default locale/culture code, e.g. "en", "fr". Stored in i18n.defaultCulture.'),
     autoDetect: z.boolean().optional().describe('Auto-detect visitor language from browser locale. Stored in i18n.autoDetect.'),
     translations: z.record(z.record(z.unknown())).optional().describe('Per-locale banner copy overrides. Merged onto banner.i18n (locale keys preserved).'),
+    overrides: z
+      .record(z.object({ banner: z.record(z.string()).optional(), categories: z.record(z.object({ label: z.string().optional(), description: z.string().optional() })).optional() }))
+      .optional()
+      .describe('The site\'s own copy per language, keyed by tag (de, pt-BR): { banner: { title, body, … }, categories: { <id>: { label, description } } }. Each language given replaces its entry in i18n.overrides; other languages are kept. Strings the site wrote are shown as written in any language without an override — stock translations never replace them.'),
   });
 
   tool(
     'set_languages',
-    'Configure language/i18n settings for a site: default culture, auto-detect, and per-locale banner copy. Fetches the current config, patches only i18n + banner.i18n, and PUTs.',
+    'Configure language/i18n settings for a site: default culture, auto-detect, and the site\'s own copy per language (overrides). Fetches the current config, patches only i18n + banner.i18n, and PUTs.',
     setLanguagesSchema.shape,
     async (a) => {
-      const { cbid: siteId, defaultCulture, autoDetect, translations } = setLanguagesSchema.parse(a);
+      const { cbid: siteId, defaultCulture, autoDetect, translations, overrides } = setLanguagesSchema.parse(a);
       const cfg = await client.sites.getConfig(siteId) as Record<string, unknown>;
       const existingI18n = (cfg['i18n'] ?? {}) as Record<string, unknown>;
       const existingBanner = (cfg['banner'] ?? {}) as Record<string, unknown>;
@@ -123,6 +127,9 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
         ...existingI18n,
         ...(defaultCulture !== undefined ? { defaultCulture } : {}),
         ...(autoDetect !== undefined ? { autoDetect } : {}),
+        ...(overrides !== undefined
+          ? { overrides: { ...((existingI18n['overrides'] ?? {}) as Record<string, unknown>), ...overrides } }
+          : {}),
       };
       const banner: Record<string, unknown> = {
         ...existingBanner,
@@ -209,16 +216,22 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     cbid: z.string().describe('Site identifier (cbid).'),
     type: bannerTypeEnum.optional().describe('Banner type. multilevel | inline | accept-decline | accept-only | do-not-sell.'),
     layout: bannerLayoutEnum.optional().describe('Banner layout. top | bottom | push-down | popup | overlay.'),
+    preset: z
+      .enum(['bar', 'box', 'full'] as const)
+      .optional()
+      .describe('Named shape that sets type/secondLayer (and layout for box): bar = slim one-row bar + categories in a modal; box = centred card + modal; full = every category in the first layer.'),
+    secondLayer: z.enum(['expand', 'popup', 'modal'] as const).optional().describe('Where the categories open from an inline banner.'),
+    density: z.enum(['comfortable', 'compact'] as const).optional().describe('compact = one-row bar from 760px wide.'),
     theme: z.record(z.unknown()).optional().describe('Partial ThemeTokens — deep-merged onto the existing banner theme.'),
     content: z.record(z.unknown()).optional().describe('Partial BannerContent — banner copy overrides (title, body, button labels, policyUrl, etc.).'),
   });
 
   tool(
     'set_banner_basics',
-    'Configure v1 banner appearance for a site: type, layout, theme tokens, and copy. Fetches the current config, patches only banner.{type,layout,theme,content}, and PUTs.',
+    'Configure v1 banner appearance for a site: preset, type, layout, second layer, density, theme tokens, and copy (content.preferencesTitle titles the preferences dialog). Fetches the current config, patches only those banner fields, and PUTs. Setting type or secondLayer (or layout under the box preset) without a preset removes the stored preset, which would otherwise re-derive them.',
     setBannerBasicsSchema.shape,
     async (a) => {
-      const { cbid: siteId, type, layout, theme, content } = setBannerBasicsSchema.parse(a);
+      const { cbid: siteId, type, layout, preset, secondLayer, density, theme, content } = setBannerBasicsSchema.parse(a);
       const cfg = await client.sites.getConfig(siteId) as Record<string, unknown>;
       const existingBanner = (cfg['banner'] ?? {}) as Record<string, unknown>;
       const existingTheme = (existingBanner['theme'] ?? {}) as Record<string, unknown>;
@@ -227,9 +240,15 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
         ...existingBanner,
         ...(type !== undefined ? { type } : {}),
         ...(layout !== undefined ? { layout } : {}),
+        ...(secondLayer !== undefined ? { secondLayer } : {}),
+        ...(density !== undefined ? { density } : {}),
+        ...(preset !== undefined ? { preset } : {}),
         ...(theme !== undefined ? { theme: { ...existingTheme, ...theme } } : {}),
         ...(content !== undefined ? { content: { ...existingContent, ...content } } : {}),
       };
+      // The preset owns type/secondLayer; a hand-set shape without a preset replaces it.
+      const owned = type !== undefined || secondLayer !== undefined || (layout !== undefined && banner['preset'] === 'box');
+      if (preset === undefined && owned) delete banner['preset'];
       return client.sites.putConfig(siteId, { ...cfg, banner });
     },
   );
@@ -252,6 +271,24 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     (a) => {
       const { cbid: siteId, blockingMode, culture } = getInstallSnippetSchema.parse(a);
       return client.sites.snippet(siteId, { blockingMode, culture });
+    },
+  );
+
+  const previewBannerSchema = z.object({
+    cbid: z.string().describe('Site identifier (cbid). Must belong to your org.'),
+    region: z.string().optional().describe('Region to show the banner for: a country or subdivision code ("de", "us-ca") or "eu".'),
+    lang: z.string().optional().describe('Language to show it in, e.g. "de", "pt-BR".'),
+    url: z.string().optional().describe("The page to open. Default: the site's registered domain."),
+    ttlSeconds: z.number().int().min(1).max(3600).optional().describe('How long the link works, in seconds (default 900, max 3600).'),
+  });
+
+  tool(
+    'preview_banner',
+    'Get a short-lived link that shows the site’s banner exactly as a visitor in a given region and language sees it — it works from a headless browser too (bot suppression is bypassed), and nothing done on it is recorded as consent or counted in statistics.',
+    previewBannerSchema.shape,
+    (a) => {
+      const { cbid: siteId, ...opts } = previewBannerSchema.parse(a);
+      return client.sites.previewToken(siteId, opts);
     },
   );
 }
