@@ -222,7 +222,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
       .describe('Named shape that sets type/secondLayer (and layout for box): bar = slim one-row bar + categories in a modal; box = centred card + modal; full = every category in the first layer.'),
     secondLayer: z.enum(['expand', 'popup', 'modal'] as const).optional().describe('Where the categories open from an inline banner.'),
     density: z.enum(['comfortable', 'compact'] as const).optional().describe('compact = one-row bar from 760px wide.'),
-    theme: z.record(z.unknown()).optional().describe('Partial ThemeTokens — deep-merged onto the existing banner theme.'),
+    theme: z.record(z.unknown()).optional().describe('Partial ThemeTokens — deep-merged onto the existing banner theme. Includes `scrollbar`: { style: themed|thin|native|hidden, thumb?, thumbHover?, track?, width? 4–16, radius? 0–999 }.'),
     content: z.record(z.unknown()).optional().describe('Partial BannerContent — banner copy overrides (title, body, button labels, policyUrl, etc.).'),
   });
 

@@ -438,12 +438,27 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     client.sites.cookies(a.cbid as string),
   );
 
-  tool('scan_site', 'Trigger a cookie scan for a site. Returns the scan job state.', { ...cbid }, (a) =>
-    client.sites.scan(a.cbid as string),
+  tool(
+    'scan_site',
+    'Trigger a cookie crawl of a site (at most 90 s). Returns its scanId and state (queued). With wait: true, returns once it is done or failed — state, cookieCount, pagesVisited, durationMs, error. The stored list keeps cookies earlier crawls and real visits found; retire one the site no longer sets.',
+    { ...cbid, wait: z.boolean().optional().describe('Wait for the scan to finish (up to 100 s) and return its outcome.') },
+    async (a) => {
+      let started: unknown;
+      try {
+        started = await client.sites.scan(a.cbid as string);
+      } catch (err) {
+        // Already running: with wait, wait for that one rather than fail.
+        if (!a.wait || (err as { status?: number }).status !== 409) throw err;
+      }
+      return a.wait ? client.sites.waitForScan(a.cbid as string, { timeoutMs: 100_000 }) : started;
+    },
   );
 
-  tool('get_scan_status', 'Get the status/result of a site’s most recent cookie scan.', { ...cbid }, (a) =>
-    client.sites.scanStatus(a.cbid as string),
+  tool(
+    'get_scan_status',
+    'Get a site’s last cookie scan: state (queued, scanning, done, failed), scanId, durationMs, cookieCount, pagesVisited and error when it failed.',
+    { ...cbid, wait: z.number().min(0).max(60).optional().describe('Seconds (≤60) to wait for a running scan to settle before answering.') },
+    (a) => (a.wait !== undefined ? client.sites.scanStatus(a.cbid as string, { wait: a.wait as number }) : client.sites.scanStatus(a.cbid as string)),
   );
 
   tool('get_ab_results', 'Get A/B banner experiment results (per variant) for a site.', { ...cbid }, (a) =>
@@ -772,6 +787,33 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       if (a.dryRun) return client.sites.undeclareCookie(a.cbid as string, a.name as string, { dryRun: true });
       await client.sites.undeclareCookie(a.cbid as string, a.name as string);
       return { undeclared: a.name };
+    },
+  );
+
+  tool(
+    'retire_cookie',
+    'Retire a cookie the site renamed or stopped setting: it leaves the banner’s cookie list, data-cc="declaration" and the public feed, and stays listed for the owner with retired. A name ending in * retires every cookie with that prefix; the name must match a scanned, observed or declared cookie. If a crawl or a real visit sees it again afterwards, it is listed again with review: retired_but_seen.',
+    {
+      cbid: z.string(),
+      name: z.string(),
+      renamedTo: z.string().max(256).optional().describe('The cookie’s new name, if it was renamed.'),
+      note: z.string().max(1000).optional(),
+      dryRun: z.boolean().optional().describe('Store nothing: answer with the would-be retirement and list to check first.'),
+    },
+    (a) => {
+      const input = { ...(a.renamedTo ? { renamedTo: a.renamedTo as string } : {}), ...(a.note ? { note: a.note as string } : {}) };
+      return client.sites.retireCookie(a.cbid as string, a.name as string, input, a.dryRun ? { dryRun: true } : undefined);
+    },
+  );
+
+  tool(
+    'unretire_cookie',
+    'Un-retire a cookie: it is listed again everywhere.',
+    { cbid: z.string(), name: z.string(), dryRun: z.boolean().optional().describe('Store nothing: answer with what the list would be.') },
+    async (a) => {
+      if (a.dryRun) return client.sites.unretireCookie(a.cbid as string, a.name as string, { dryRun: true });
+      await client.sites.unretireCookie(a.cbid as string, a.name as string);
+      return { unretired: a.name };
     },
   );
 

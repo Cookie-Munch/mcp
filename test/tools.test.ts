@@ -341,6 +341,8 @@ const EXPECTED_TOOLS = [
   'declare_cookie',
   'declare_cookies',
   'undeclare_cookie',
+  'retire_cookie',
+  'unretire_cookie',
   'roll_webhook_secret',
   'test_webhook',
   'list_webhook_dead_letters',
@@ -625,6 +627,59 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('scan_site').handler({ cbid: 'a' });
     expect(client.sites.scan).toHaveBeenCalledWith('a');
+  });
+
+  it('scan_site with wait: true starts the scan, then waits for it to settle', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const waitForScan = vi.fn(async () => ({ status: 'idle', state: 'done', cookieCount: 3, lastScannedAt: 1 }));
+    Object.assign(client.sites, { waitForScan });
+    registerTools(server, client);
+    const res = await byName('scan_site').handler({ cbid: 'a', wait: true });
+    expect(client.sites.scan).toHaveBeenCalledWith('a');
+    expect(waitForScan).toHaveBeenCalledWith('a', { timeoutMs: 100_000 });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ state: 'done', cookieCount: 3 });
+    expect(byName('scan_site').config.inputSchema).toHaveProperty('wait');
+  });
+
+  it('scan_site with wait: true waits on a scan that is already running (409) instead of failing', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const busy = Object.assign(new Error('already scanning'), { status: 409 });
+    const waitForScan = vi.fn(async () => ({ status: 'idle', state: 'done', lastScannedAt: 1 }));
+    Object.assign(client.sites, { scan: vi.fn(async () => { throw busy; }), waitForScan });
+    registerTools(server, client);
+    const res = await byName('scan_site').handler({ cbid: 'a', wait: true });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ state: 'done' });
+    await expect(byName('scan_site').handler({ cbid: 'a' })).resolves.toBeDefined();
+  });
+
+  it('get_scan_status passes wait (seconds) only when given', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('get_scan_status').handler({ cbid: 'a' });
+    expect(client.sites.scanStatus).toHaveBeenLastCalledWith('a');
+    await byName('get_scan_status').handler({ cbid: 'a', wait: 30 });
+    expect(client.sites.scanStatus).toHaveBeenLastCalledWith('a', { wait: 30 });
+  });
+
+  it('retire_cookie / unretire_cookie pass renamedTo, note and dryRun', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const retire = vi.fn(async () => ({ cookie: { name: 'old', at: 1 }, matched: ['old'] }));
+    const unretire = vi.fn(async () => undefined);
+    Object.assign(client.sites, { retireCookie: retire, unretireCookie: unretire });
+    registerTools(server, client);
+    await byName('retire_cookie').handler({ cbid: 's1', name: 'old', renamedTo: 'new', note: 'v2' });
+    expect(retire).toHaveBeenCalledWith('s1', 'old', { renamedTo: 'new', note: 'v2' }, undefined);
+    await byName('retire_cookie').handler({ cbid: 's1', name: 'atlas_*', dryRun: true });
+    expect(retire).toHaveBeenLastCalledWith('s1', 'atlas_*', {}, { dryRun: true });
+    const res = await byName('unretire_cookie').handler({ cbid: 's1', name: 'old' });
+    expect(unretire).toHaveBeenCalledWith('s1', 'old');
+    expect(JSON.parse(res.content[0]!.text)).toEqual({ unretired: 'old' });
+    await byName('unretire_cookie').handler({ cbid: 's1', name: 'old', dryRun: true });
+    expect(unretire).toHaveBeenLastCalledWith('s1', 'old', { dryRun: true });
   });
 
   it('create_webhook forwards url + events + cbid', async () => {
