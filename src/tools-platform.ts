@@ -369,8 +369,30 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
       profile: z
         .record(z.unknown())
         .describe('How to drive that system: { open, poll, statuses } required, plus optional subjectLookup, auth, idempotencyHeader and webhook. See the connected-systems docs for the shape.'),
+      dryRun: z.boolean().optional().describe('Validate everything and answer the connection that would be created, storing nothing.'),
     },
-    (a) => client.fulfillment.connectExecutor(a as never),
+    (a) => {
+      const { dryRun, ...input } = a as Record<string, unknown>;
+      return dryRun === true ? client.fulfillment.dryRunConnectExecutor(input as never) : client.fulfillment.connectExecutor(input as never);
+    },
+  );
+
+  tool(
+    'test_dsar_executor_webhook',
+    "Would this webhook delivery from a connected system verify? Runs the receiver's exact check (headers, timestamp tolerance, prefix, HMAC) on headers and a raw body you supply, acts on nothing, and returns { verified, stage, reason } naming the stage that failed. `body` must be the raw request body string, byte for byte. Read-only.",
+    {
+      id: z.string().describe('The connection id.'),
+      headers: z.record(z.string()).describe('The delivery headers, e.g. its id, timestamp and signature headers.'),
+      body: z.string().describe('The raw body exactly as it was signed.'),
+    },
+    (a) => client.fulfillment.testExecutorWebhook(a.id as string, { headers: a.headers as Record<string, string>, body: a.body as string }),
+  );
+
+  tool(
+    'list_dsar_executor_webhook_deliveries',
+    "The last 50 deliveries to a connected system's webhook, newest first, each with whether it verified and, if not, the stage and reason. Never includes the secret, the signature or the body (only a short hash and size). Read-only.",
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.executorWebhookDeliveries(a.id as string),
   );
 
   tool(

@@ -193,6 +193,8 @@ const EXPECTED_TOOLS = [
   'get_dsar_task_export',
   'get_dsar_task',
   'test_dsar_executor',
+  'test_dsar_executor_webhook',
+  'list_dsar_executor_webhook_deliveries',
   'get_dsr_fulfillment_status',
   'inspect_ai_prompt',
   'get_ai_inventory',
@@ -382,6 +384,28 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('erase_dsar_subject').handler({ id: 'dsar_1', cbid: 'site-a', stamp: 'st-1' });
     expect(erase).toHaveBeenCalledWith('dsar_1', 'site-a', 'st-1');
+  });
+
+  /** Numestri F-01: purposes ride along in the body; dryRun reaches the SDK only when set. */
+  it('declare_cookie / declare_cookies / undeclare_cookie pass purposes and dryRun', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const one = vi.fn(async () => ({}));
+    const many = vi.fn(async () => ({}));
+    const un = vi.fn(async () => ({ dryRun: true, declared: [], diff: { added: [], removed: [], changed: [] } }));
+    Object.assign(client.sites, { declareCookie: one, declareCookies: many, undeclareCookie: un });
+    registerTools(server, client);
+    await byName('declare_cookie').handler({ cbid: 's1', name: 'sid', category: 'necessary', purpose: 'p', purposes: { es: 'x' }, dryRun: true });
+    expect(one).toHaveBeenCalledWith('s1', 'sid', { category: 'necessary', purpose: 'p', purposes: { es: 'x' } }, { dryRun: true });
+    await byName('declare_cookie').handler({ cbid: 's1', name: 'sid', category: 'necessary', purpose: 'p' });
+    expect(one).toHaveBeenLastCalledWith('s1', 'sid', { category: 'necessary', purpose: 'p' }, undefined);
+    await byName('declare_cookies').handler({ cbid: 's1', cookies: [{ name: 'a', category: 'necessary', purpose: 'A', purposes: { de: 'B' } }], replace: true, dryRun: true });
+    expect(many).toHaveBeenCalledWith('s1', [{ name: 'a', category: 'necessary', purpose: 'A', purposes: { de: 'B' } }], { replace: true, dryRun: true });
+    const res = await byName('undeclare_cookie').handler({ cbid: 's1', name: 'sid', dryRun: true });
+    expect(un).toHaveBeenCalledWith('s1', 'sid', { dryRun: true });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ dryRun: true });
+    expect(byName('declare_cookie').config.inputSchema).toHaveProperty('purposes');
+    expect(byName('undeclare_cookie').config.inputSchema).toHaveProperty('dryRun');
   });
 
   /** baseUpdatedAt passes through only when given, so an agent can opt into conflict detection. */

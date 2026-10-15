@@ -40,7 +40,7 @@ function fakeClient() {
     discovery: { ingestMap: spy('x'), getMap: spy('d.getMap'), ropaDrafts: spy('d.ropaDrafts'), evidence: spy('x'), drift: spy('d.drift'), planEnforcement: spy('d.planEnforcement') },
     regulatory: { feed: spy('reg.feed'), upcoming: spy('reg.upcoming') },
     ai: { getPolicy: spy('x'), setPolicy: spy('x'), inspect: spy('ai.inspect'), inventory: spy('ai.inventory'), lineage: spy('ai.lineage'), registerSystem: spy('x'), audit: spy('x') },
-    fulfillment: { sla: spy('f.sla'), plan: spy('f.plan'), status: spy('f.status'), pendingTasks: spy('x'), reportTask: spy('x') },
+    fulfillment: { sla: spy('f.sla'), plan: spy('f.plan'), status: spy('f.status'), pendingTasks: spy('x'), reportTask: spy('x'), connectExecutor: spy('f.connect'), dryRunConnectExecutor: spy('f.dryRunConnect'), updateExecutor: spy('f.update'), dryRunUpdateExecutor: spy('f.dryRunUpdate'), testExecutorWebhook: spy('f.testWebhook'), executorWebhookDeliveries: spy('f.deliveries') },
   } as unknown as CookieMunchClient;
   return { client, calls };
 }
@@ -170,5 +170,21 @@ describe('warehouse enforcement + regulatory tools', () => {
     await tools.get('set_subscription_topics')!.handler({ topics });
     expect(calls.find((c) => c.method === 'subs.topics')).toBeTruthy();
     expect(calls.find((c) => c.method === 'subs.setTopics')?.args[0]).toEqual(topics);
+  });
+});
+
+describe('connected-system webhook and dry-run tools', () => {
+  it('route dryRun to the dry-run methods, and pass a delivery through untouched', async () => {
+    const { tools, calls } = setup();
+    await tools.get('connect_dsar_executor')!.handler({ system: 'crm', baseUrl: 'https://crm.example', secretKey: 'sk_12345678', profile: {}, dryRun: true });
+    await tools.get('connect_dsar_executor')!.handler({ system: 'crm', baseUrl: 'https://crm.example', secretKey: 'sk_12345678', profile: {} });
+    await tools.get('update_dsar_executor')!.handler({ id: 'e1', patch: { auto: false }, dryRun: true });
+    await tools.get('update_dsar_executor')!.handler({ id: 'e1', patch: { auto: false } });
+    await tools.get('test_dsar_executor_webhook')!.handler({ id: 'e1', headers: { 'x-sig': 'v1,a' }, body: '{"a":1}' });
+    await tools.get('list_dsar_executor_webhook_deliveries')!.handler({ id: 'e1' });
+    expect(calls.map((c) => c.method)).toEqual(['f.dryRunConnect', 'f.connect', 'f.dryRunUpdate', 'f.update', 'f.testWebhook', 'f.deliveries']);
+    // `dryRun` is a tool flag, not part of the connection.
+    expect(calls[0]!.args[0]).not.toHaveProperty('dryRun');
+    expect(calls[4]!.args).toEqual(['e1', { headers: { 'x-sig': 'v1,a' }, body: '{"a":1}' }]);
   });
 });

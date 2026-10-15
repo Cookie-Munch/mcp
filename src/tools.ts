@@ -252,9 +252,16 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
   tool(
     'update_dsar_executor',
-    'Change a connected system in place — its profile, address, credential or auto flag. Only what you pass changes; the stored credential is kept unless you give a new one.',
-    { id: z.string(), patch: z.record(z.unknown()) },
-    (a) => client.fulfillment.updateExecutor(a.id as string, a.patch as Record<string, unknown>),
+    'Change a connected system in place — its profile, address, credential or auto flag. Only what you pass changes; the stored credential is kept unless you give a new one. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
+    {
+      id: z.string(),
+      patch: z.record(z.unknown()),
+      dryRun: z.boolean().optional().describe('Validate and diff without saving.'),
+    },
+    (a) =>
+      a.dryRun === true
+        ? client.fulfillment.dryRunUpdateExecutor(a.id as string, a.patch as Record<string, unknown>)
+        : client.fulfillment.updateExecutor(a.id as string, a.patch as Record<string, unknown>),
   );
   tool(
     'get_dsar',
@@ -720,36 +727,49 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   const declarationShape = {
     category: z.string().describe('necessary, preferences, statistics, marketing, or one of the site’s categories.custom ids.'),
-    purpose: z.string().describe('What the cookie does, as visitors will read it.'),
+    purpose: z.string().describe('What the cookie does, as visitors will read it — and the fallback for any language purposes lacks.'),
+    purposes: z
+      .record(z.string(), z.string().max(1000))
+      .nullable()
+      .optional()
+      .describe('The purpose in other languages, keyed by BCP-47 tag: {"es": "…", "pt-BR": "…"}. The banner, data-cc="declaration" and cookie-declaration.js draw the visitor’s language. null clears.'),
     provider: z.string().optional(),
     expiry: z.string().optional().describe('e.g. "Session", "30 days", "1 year" (the banner localises these forms).'),
     domain: z.string().optional(),
     pattern: z.boolean().optional().describe('Treat the name as a prefix wildcard (a trailing * does the same).'),
   };
 
+  const dryRunArg = z
+    .boolean()
+    .optional()
+    .describe('Store nothing: answer with the would-be declarations and a diff (added / removed / changed) to check first.');
+
   tool(
     'declare_cookie',
     'Declare what one of the site’s cookies is. Overrides the scanner, observed visits and the cookie database everywhere the declaration is shown (API, preference modal, data-cc="declaration"). Use for the site’s own cookies the database cannot know. A name ending in * covers every cookie with that prefix.',
-    { cbid: z.string(), name: z.string(), ...declarationShape },
+    { cbid: z.string(), name: z.string(), ...declarationShape, dryRun: dryRunArg },
     (a) => {
-      const { cbid, name, ...rest } = a as { cbid: string; name: string } & Record<string, unknown>;
-      return client.sites.declareCookie(cbid, name, rest as never);
+      const { cbid, name, dryRun, ...rest } = a as { cbid: string; name: string; dryRun?: boolean } & Record<string, unknown>;
+      return client.sites.declareCookie(cbid, name, rest as never, dryRun ? { dryRun: true } : undefined);
     },
   );
 
   tool(
     'declare_cookies',
     'Declare many cookies at once. All-or-nothing: one invalid item refuses the whole request and nothing is saved. replace: true also removes every declaration the list does not name.',
-    { cbid: z.string(), cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500), replace: z.boolean().optional() },
-    (a) =>
-      client.sites.declareCookies(a.cbid as string, a.cookies as never, a.replace ? { replace: true } : undefined),
+    { cbid: z.string(), cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500), replace: z.boolean().optional(), dryRun: dryRunArg },
+    (a) => {
+      const o = { ...(a.replace ? { replace: true } : {}), ...(a.dryRun ? { dryRun: true } : {}) };
+      return client.sites.declareCookies(a.cbid as string, a.cookies as never, Object.keys(o).length ? o : undefined);
+    },
   );
 
   tool(
     'undeclare_cookie',
     'Remove a cookie declaration; the scanned/observed classification applies again.',
-    { cbid: z.string(), name: z.string() },
+    { cbid: z.string(), name: z.string(), dryRun: dryRunArg },
     async (a) => {
+      if (a.dryRun) return client.sites.undeclareCookie(a.cbid as string, a.name as string, { dryRun: true });
       await client.sites.undeclareCookie(a.cbid as string, a.name as string);
       return { undeclared: a.name };
     },
