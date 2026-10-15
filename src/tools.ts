@@ -10,6 +10,8 @@ import { z, type ZodRawShape } from 'zod';
 import type { CookieMunchClient } from '@cookiemunch/sdk';
 import { registerConfigTools } from './tools-config.js';
 import { registerPlatformTools } from './tools-platform.js';
+import { registerRightsPageTools, registerRightsTools } from './tools-rights-page.js';
+import { withDesignWarnings } from './design-warnings.js';
 // No @cookiemunch/core dependency: the v2 flow engine runs server-side behind the
 // /v1/sites/:cbid/flow endpoints, which the SDK client surfaces as getFlow/editFlow/
 // setFlow. The MCP server therefore bundles only the SDK.
@@ -42,9 +44,11 @@ export interface ToolServer {
   ): unknown;
 }
 
-function text(value: unknown): ToolResult {
+function text(value: unknown, tool = ''): ToolResult {
   const body = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  return { content: [{ type: 'text', text: body }] };
+  // A config/design result whose Accept is pushed harder than its Reject says so FIRST, and
+  // says truthfully whether anything was saved.
+  return { content: [{ type: 'text', text: withDesignWarnings(value, body, tool) }] };
 }
 
 function fail(err: unknown): ToolResult {
@@ -57,7 +61,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   const tool: ToolRegistrar = (name, description, inputSchema, run) => {
     server.registerTool(name, { description, inputSchema }, async (args) => {
       try {
-        return text(await run(args));
+        return text(await run(args), name);
       } catch (err) {
         return fail(err);
       }
@@ -196,6 +200,23 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'lint_banner_config',
+    'Check a banner config for consent-button parity WITHOUT saving it: is "Accept all" more prominent than "Reject all" anywhere — a brighter or more saturated colour, a bigger or bolder button, Reject styled as a link, hidden, below the fold, set apart, missing from the first layer, or worded to guilt-trip? Regulators (EDPB, CNIL) treat that as a dark pattern. Returns findings, a 0–100 score and the reject style that would match Accept. It checks exactly what the write would store: merged over the stored config as patch_site_config would, or with replace: true replaced as update_site_config would. Run it before writing any banner design.',
+    {
+      ...cbid,
+      config: z.record(z.unknown()).describe('The proposed SiteConfig (or a partial one, or a v2 flow design).'),
+      replace: z.boolean().optional().describe('Check what update_site_config (a full replace) would store, instead of what patch_site_config (a merge) would.'),
+    },
+    async (a) => {
+      const r = await client.sites.lintConfig(a.cbid as string, a.config as Record<string, unknown>, a.replace === true ? { replace: true } : {});
+      // A clean bill is said in words too, so an agent does not have to infer it from an empty array.
+      return r.designWarnings.length === 0
+        ? `No design warnings: Accept all and Reject all have equal weight on every surface checked (score ${r.score}). Nothing was saved.\n\n${JSON.stringify(r, null, 2)}`
+        : r;
+    },
+  );
+
+  tool(
     'verify_consent_log',
     "Verify a site's consent log has not been tampered with. Each record carries the hash of the one before it, so an edited, reordered or deleted record breaks the chain and this returns valid: false. This is the evidence behind a consent log — what you check when someone asks whether the record can be trusted, not just what it says.",
     { ...cbid },
@@ -280,6 +301,28 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         regulation: a.regulation as never,
         ...(typeof a.note === 'string' ? { note: a.note } : {}),
         ...(a.test === true ? { test: true } : {}),
+      }),
+  );
+
+  tool(
+    'create_rights_link',
+    'Mint a signed, single-use link to a site’s hosted rights page for a person you know is signed in to that site. On the page their email is filled in and locked and the email-code step is skipped; the filed request is recorded as verified by their account. Give the link only to that person. Expires in 15 minutes by default (max 1 hour). Needs dsar:write.',
+    {
+      cbid: z.string().describe('Site identifier (cbid). Must belong to your org.'),
+      email: z.string().describe('The signed-in person’s verified email address.'),
+      userId: z.string().optional().describe('Your own account id for them; recorded on the request.'),
+      rights: z
+        .array(z.enum(['access', 'erasure', 'rectification', 'portability', 'restriction', 'objection', 'opt_out_sale', 'opt_out_targeted', 'limit_sensitive']))
+        .min(1)
+        .optional()
+        .describe('Limit the link to these rights. Default: every right the page offers.'),
+      ttlSeconds: z.number().int().min(60).max(3600).optional().describe('How long the link works, in seconds (default 900).'),
+    },
+    (a) =>
+      client.rightsLinks.create(a.cbid as string, {
+        subject: { email: a.email as string, ...(typeof a.userId === 'string' ? { userId: a.userId } : {}) },
+        ...(Array.isArray(a.rights) ? { rights: a.rights as never } : {}),
+        ...(typeof a.ttlSeconds === 'number' ? { ttlSeconds: a.ttlSeconds } : {}),
       }),
   );
 
@@ -545,6 +588,8 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   registerConfigTools(tool, client);
 
   registerPlatformTools(tool, client);
+  registerRightsTools(tool, client);
+  registerRightsPageTools(tool, client);
 
   // ---------------------------------------------------------------------------
   // Task 4: org/member/brand-kit/preference writes + issue_api_key
@@ -753,6 +798,169 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         ...(a.name !== undefined ? { name: a.name as string } : {}),
         ...(a.logoUrl !== undefined ? { logoUrl: a.logoUrl as string | null } : {}),
       }),
+  );
+
+  // ---- the organisation's own mail provider for rights-request mail (BYOK) ----
+  tool(
+    'get_mail_provider',
+    'Your own mail provider for rights-request mail (verification codes and other privacy-request mail), if any. Never returns the credential, only its last four characters. `sender` says whether verification codes are mailed through it now (own) or not at all (none) — there is no shared sender. Read-only.',
+    {},
+    () => client.org.mailProvider.get(),
+  );
+
+  tool(
+    'set_mail_provider',
+    'Connect your own mail provider for rights-request mail — recommended, so codes come from your own domain. Replaces the stored one. It carries mail only after test_mail_provider succeeds; every save clears that. Omit secret to keep the stored one (same provider only).',
+    {
+      provider: z.enum(['brevo', 'sendgrid', 'postmark', 'resend', 'ses', 'smtp']),
+      fromEmail: z.string().describe('An address on a domain your provider has verified.'),
+      fromName: z.string().max(100).nullable().optional(),
+      replyTo: z.string().nullable().optional(),
+      secret: z.string().optional().describe('API key (Brevo, SendGrid, Resend), server token (Postmark), secret access key (SES) or SMTP password. Write-only.'),
+      ses: z.object({ region: z.string(), accessKeyId: z.string() }).optional().describe('Required for ses.'),
+      smtp: z
+        .object({ host: z.string(), port: z.union([z.literal(25), z.literal(465), z.literal(587), z.literal(2525)]), security: z.enum(['tls', 'starttls']), username: z.string() })
+        .optional()
+        .describe('Required for smtp. TLS is always required.'),
+    },
+    (a) => client.org.mailProvider.set(a as never),
+  );
+
+  tool(
+    'test_mail_provider',
+    'Send a test message through your own mail provider (never Cookie Munch’s) and report what it answered. Success marks the configuration verified, after which it carries all rights mail.',
+    { to: z.string().optional().describe('Recipient. Default: the reply-to, else the from address.') },
+    (a) => client.org.mailProvider.test(a.to as string | undefined),
+  );
+
+  tool(
+    'remove_mail_provider',
+    'Remove your own mail provider. Rights mail goes back to Cookie Munch’s shared sender, labelled as sending on your site’s behalf.',
+    {},
+    async () => {
+      await client.org.mailProvider.remove();
+      return { removed: true };
+    },
+  );
+
+  // ---- the rights page's captcha: the customer's own keys, or off (Cookie Munch's own is never used there) ----
+  const CAPTCHA_OFF = 'Off removes spam protection beyond the hidden spam-trap field, the rate limits and the email code: expect more spam requests. Own keys are recommended.';
+  const captchaInput = {
+    mode: z.enum(['own', 'off']).describe(`own: your own captcha provider keys (recommended). off: no captcha. ${CAPTCHA_OFF}`),
+    provider: z.enum(['turnstile', 'hcaptcha', 'recaptcha_v2', 'recaptcha_v3']).optional().describe('Required for own.'),
+    siteKey: z.string().optional().describe('Required for own: the public site key. List your rights-page hostnames on it at the provider.'),
+    secret: z.string().optional().describe('The provider secret key. Write-only; never returned. Omit to keep the stored one (same provider).'),
+    minScore: z.number().min(0.1).max(0.9).optional().describe('reCAPTCHA v3 only. Default 0.5.'),
+  };
+  const captchaBody = (a: Record<string, unknown>) => ({
+    mode: a.mode as 'own' | 'off',
+    ...(a.provider !== undefined ? { provider: a.provider as never } : {}),
+    ...(a.siteKey !== undefined ? { siteKey: a.siteKey as string } : {}),
+    ...(a.secret !== undefined ? { secret: a.secret as string } : {}),
+    ...(a.minScore !== undefined ? { minScore: a.minScore as number } : {}),
+  });
+
+  tool(
+    'get_rights_captcha',
+    'The captcha on a site’s hosted rights page: its own setting, else the organisation default, else off (`source` says which). Never returns the secret. Read-only.',
+    { cbid: z.string() },
+    (a) => client.rightsCaptcha.get(a.cbid as string),
+  );
+
+  tool(
+    'set_rights_captcha',
+    `Set a site’s rights-page captcha: your own Turnstile, hCaptcha or reCAPTCHA keys (recommended; the provider must accept the secret before it is saved), or off. ${CAPTCHA_OFF} Audited with the old and new mode.`,
+    { cbid: z.string(), ...captchaInput },
+    (a) => client.rightsCaptcha.set(a.cbid as string, captchaBody(a)),
+  );
+
+  tool(
+    'remove_rights_captcha',
+    'Remove a site’s own captcha setting: it inherits the organisation default again (or off). Returns the setting now in force.',
+    { cbid: z.string() },
+    (a) => client.rightsCaptcha.remove(a.cbid as string),
+  );
+
+  tool(
+    'get_rights_captcha_default',
+    'The organisation default captcha for its rights pages, used by every site without its own setting. Never returns the secret. Read-only.',
+    {},
+    () => client.org.rightsCaptcha.get(),
+  );
+
+  tool(
+    'set_rights_captcha_default',
+    `Set the organisation default captcha for its rights pages: your own keys (recommended) or off. ${CAPTCHA_OFF}`,
+    captchaInput,
+    (a) => client.org.rightsCaptcha.set(captchaBody(a)),
+  );
+
+  tool(
+    'remove_rights_captcha_default',
+    'Remove the organisation default: sites without their own setting then have no captcha. Returns the setting now in force.',
+    {},
+    () => client.org.rightsCaptcha.remove(),
+  );
+
+  // ---- the sign-in provider rights requests are verified with (Clerk, Atlas, any JWKS issuer) ----
+  const IDENTITY_NOTE = 'The JWKS is fetched and checked before anything is saved. The session token must carry the email and a verified-email claim (default email_verified) set to true (Clerk: add email: {{user.primary_email_address}} to the session token; Clerk documents no claim for whether that address is verified, so either add your own or set trustEmailClaim). oidc_jwt needs an audience or authorizedParties.';
+  const identityInput = {
+    type: z.enum(['clerk', 'atlas', 'oidc_jwt']).describe('clerk, atlas (Clerk-shaped), or oidc_jwt (any issuer that signs session JWTs with a published JWKS).'),
+    issuer: z.string().describe('https URL exactly as in the token’s iss (Clerk: your Frontend API URL).'),
+    jwksUrl: z.string().optional().describe('Required for oidc_jwt; clerk/atlas default to <issuer>/.well-known/jwks.json.'),
+    audience: z.string().optional().describe('Expected aud. For oidc_jwt an audience or authorizedParties is required (a shared issuer mints tokens for every app).'),
+    authorizedParties: z.array(z.string()).optional().describe('Your own origins (https://www.example.com) the token’s azp must be one of. Required for clerk and atlas; for oidc_jwt when there is no audience.'),
+    emailClaim: z.string().optional().describe('Default email.'),
+    emailVerifiedClaim: z.string().optional().describe('Default email_verified; must be exactly true.'),
+    sessionCookieName: z.string().optional().describe('Default __session: the cookie the hosted page on your custom domain reads.'),
+    trustEmailClaim: z.boolean().optional().describe('clerk/atlas only, default false. True: a token without the verified claim is accepted, its email claim taken as verified. Set only if every address your provider puts in that claim is verified.'),
+  };
+  const identityBody = (a: Record<string, unknown>) => {
+    const out: Record<string, unknown> = { type: a.type, issuer: a.issuer };
+    for (const k of ['jwksUrl', 'audience', 'authorizedParties', 'emailClaim', 'emailVerifiedClaim', 'sessionCookieName', 'trustEmailClaim']) if (a[k] !== undefined) out[k] = a[k];
+    return out as never;
+  };
+
+  tool(
+    'get_rights_identity',
+    'The sign-in provider a site’s rights requests are verified with: its own setting, else the organisation default, else none (`source` says which). Read-only.',
+    { cbid: z.string() },
+    (a) => client.rightsIdentity.get(a.cbid as string),
+  );
+
+  tool(
+    'set_rights_identity',
+    `Connect a site’s sign-in provider so a visitor signed in to the site is verified by their session, with no code mail. ${IDENTITY_NOTE} Audited.`,
+    { cbid: z.string(), ...identityInput },
+    (a) => client.rightsIdentity.set(a.cbid as string, identityBody(a)),
+  );
+
+  tool(
+    'remove_rights_identity',
+    'Remove a site’s own sign-in provider: it inherits the organisation default again (or none). Returns the setting now in force.',
+    { cbid: z.string() },
+    (a) => client.rightsIdentity.remove(a.cbid as string),
+  );
+
+  tool(
+    'get_rights_identity_default',
+    'The organisation default sign-in provider for its rights requests, used by every site without its own. Read-only.',
+    {},
+    () => client.org.rightsIdentity.get(),
+  );
+
+  tool(
+    'set_rights_identity_default',
+    `Set the organisation default sign-in provider for its rights requests. ${IDENTITY_NOTE}`,
+    identityInput,
+    (a) => client.org.rightsIdentity.set(identityBody(a)),
+  );
+
+  tool(
+    'remove_rights_identity_default',
+    'Remove the organisation default sign-in provider. Returns the setting now in force.',
+    {},
+    () => client.org.rightsIdentity.remove(),
   );
 
   tool(

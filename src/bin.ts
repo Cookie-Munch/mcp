@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     console.error('COOKIEMUNCH_API_KEY is required.');
     process.exit(1);
   }
-  const baseUrl = process.env.COOKIEMUNCH_BASE_URL ?? 'http://localhost:8787';
+  const baseUrl = process.env.COOKIEMUNCH_BASE_URL ?? 'https://api.cookiemunch.net';
   const server = createCookieMunchMcp({ apiKey, baseUrl });
   const transport = new StdioServerTransport();
   await server.connect(transport);

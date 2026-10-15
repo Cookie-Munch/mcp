@@ -52,6 +52,9 @@ function mockClient(): CookieMunchClient {
       editFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
       setFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
     },
+    rightsLinks: {
+      create: vi.fn(async () => ({ url: 'https://cookiemunch.net/r/a?t=p.s', expiresAt: 1 })),
+    },
     consent: {
       verify: vi.fn(async () => ({ valid: true })),
       stats: vi.fn(async () => []),
@@ -74,6 +77,14 @@ function mockClient(): CookieMunchClient {
     ropa: {
       list: vi.fn(async () => []),
       create: vi.fn(async () => ({ entry: { id: 'r1' } as never })),
+    },
+    rightsPage: {
+      get: vi.fn(async () => ({})), put: vi.fn(async () => ({})), patch: vi.fn(async () => ({})), dryRun: vi.fn(async () => ({ dryRun: true })),
+      getPublished: vi.fn(async () => ({})), publish: vi.fn(async () => ({ version: 1 })), versions: vi.fn(async () => ({ versions: [] })), rollback: vi.fn(async () => ({})),
+      listDomains: vi.fn(async () => ({ domains: [], limit: 1, used: 0, target: 'cname.cookiemunch.net' })),
+      addDomain: vi.fn(async () => ({ hostname: 'privacy.acme.com', status: 'pending_dns' })),
+      verifyDomain: vi.fn(async () => ({ hostname: 'privacy.acme.com', status: 'issuing' })),
+      removeDomain: vi.fn(async () => undefined),
     },
     brandKits: {
       list: vi.fn(async () => []),
@@ -151,6 +162,7 @@ const EXPECTED_TOOLS = [
   //     discovery / DSR fulfillment / AI governance) ---
   'resolve_identity',
   'link_identity',
+  'lint_banner_config',
   'record_consent_decision',
   'get_consent_state',
   'get_profile',
@@ -228,6 +240,11 @@ const EXPECTED_TOOLS = [
   'set_flow',
   'get_install_snippet',
   'preview_banner',
+  'create_rights_link',
+  'list_rights_page_domains',
+  'add_rights_page_domain',
+  'verify_rights_page_domain',
+  'remove_rights_page_domain',
   'verify_site',
   'match_site_brand',
   // Task 3: structured config tools
@@ -297,6 +314,22 @@ const EXPECTED_TOOLS = [
   'update_api_key',
   'get_org',
   'update_org',
+  'get_mail_provider',
+  'set_mail_provider',
+  'remove_mail_provider',
+  'test_mail_provider',
+  'get_rights_captcha',
+  'set_rights_captcha',
+  'remove_rights_captcha',
+  'get_rights_captcha_default',
+  'set_rights_captcha_default',
+  'remove_rights_captcha_default',
+  'get_rights_identity',
+  'set_rights_identity',
+  'remove_rights_identity',
+  'get_rights_identity_default',
+  'set_rights_identity_default',
+  'remove_rights_identity_default',
   'get_audit_log',
   'upload_asset',
   'delete_asset',
@@ -313,6 +346,15 @@ const EXPECTED_TOOLS = [
   'erase_dsar_subject',
   'export_dsar_subject',
   'get_preference',
+  // --- the hosted rights page ---
+  'get_rights_page',
+  'update_rights_page',
+  'patch_rights_page',
+  'preview_rights_page',
+  'get_published_rights_page',
+  'publish_rights_page',
+  'list_rights_page_versions',
+  'rollback_rights_page',
 ];
 
 describe('registerTools', () => {
@@ -342,6 +384,21 @@ describe('registerTools', () => {
     expect(erase).toHaveBeenCalledWith('dsar_1', 'site-a', 'st-1');
   });
 
+  /** baseUpdatedAt passes through only when given, so an agent can opt into conflict detection. */
+  it('update_rights_page / patch_rights_page pass baseUpdatedAt through only when given', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const put = vi.fn(async () => ({}));
+    const patch = vi.fn(async () => ({}));
+    Object.assign(client.rightsPage, { put, patch });
+    registerTools(server, client);
+    await byName('update_rights_page').handler({ cbid: 's1', page: { v: 1 }, baseUpdatedAt: 5 });
+    expect(put).toHaveBeenCalledWith('s1', { v: 1 }, { baseUpdatedAt: 5 });
+    await byName('patch_rights_page').handler({ cbid: 's1', patch: { seo: {} } });
+    expect(patch).toHaveBeenCalledWith('s1', { seo: {} }, {});
+    expect(byName('update_rights_page').config.description).toMatch(/draft_conflict/);
+  });
+
   /** Only the fields given are sent, so an agent renaming the org cannot clear its logo. */
   it('update_org sends only the fields given', async () => {
     const { server, byName } = fakeServer();
@@ -353,6 +410,74 @@ describe('registerTools', () => {
     expect(update).toHaveBeenCalledWith({ name: 'Acme' });
     await byName('update_org').handler({ logoUrl: null });
     expect(update).toHaveBeenLastCalledWith({ logoUrl: null });
+  });
+
+  /** The credential goes in, never comes out; test passes the recipient through. */
+  it('mail-provider tools call org.mailProvider', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const mp = {
+      get: vi.fn(async () => ({ configured: false, sender: 'shared' })),
+      set: vi.fn(async () => ({ configured: true, sender: 'shared', secretLast4: 'abcd' })),
+      remove: vi.fn(async () => {}),
+      test: vi.fn(async () => ({ ok: true, sentTo: 'me@acme.com', mailProvider: {} })),
+    };
+    (client as unknown as { org: { mailProvider: typeof mp } }).org = { mailProvider: mp } as never;
+    registerTools(server, client);
+    await byName('get_mail_provider').handler({});
+    await byName('set_mail_provider').handler({ provider: 'postmark', fromEmail: 'p@acme.com', secret: 'tok' });
+    expect(mp.set).toHaveBeenCalledWith({ provider: 'postmark', fromEmail: 'p@acme.com', secret: 'tok' });
+    await byName('test_mail_provider').handler({ to: 'me@acme.com' });
+    expect(mp.test).toHaveBeenCalledWith('me@acme.com');
+    const res = await byName('remove_mail_provider').handler({});
+    expect(mp.remove).toHaveBeenCalledOnce();
+    expect(res.content[0]!.text).toContain('removed');
+  });
+
+  it('rights-captcha tools call rightsCaptcha and org.rightsCaptcha, and say what off costs', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const site = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    const org = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    (client as unknown as { rightsCaptcha: typeof site }).rightsCaptcha = site;
+    (client as unknown as { org: { rightsCaptcha: typeof org } }).org = { rightsCaptcha: org } as never;
+    registerTools(server, client);
+    await byName('get_rights_captcha').handler({ cbid: 's1' });
+    expect(site.get).toHaveBeenCalledWith('s1');
+    await byName('set_rights_captcha').handler({ cbid: 's1', mode: 'own', provider: 'hcaptcha', siteKey: 'k-12345678', secret: 'x' });
+    expect(site.set).toHaveBeenCalledWith('s1', { mode: 'own', provider: 'hcaptcha', siteKey: 'k-12345678', secret: 'x' });
+    await byName('remove_rights_captcha').handler({ cbid: 's1' });
+    expect(site.remove).toHaveBeenCalledWith('s1');
+    await byName('get_rights_captcha_default').handler({});
+    await byName('set_rights_captcha_default').handler({ mode: 'off' });
+    expect(org.set).toHaveBeenCalledWith({ mode: 'off' });
+    await byName('remove_rights_captcha_default').handler({});
+    expect(org.get).toHaveBeenCalledOnce();
+    expect(org.remove).toHaveBeenCalledOnce();
+    for (const name of ['set_rights_captcha', 'set_rights_captcha_default']) expect((byName(name).config as { description?: string }).description).toMatch(/spam/);
+  });
+
+  it('rights-identity tools call rightsIdentity and org.rightsIdentity, and say what the token must carry', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const site = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    const org = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    (client as unknown as { rightsIdentity: typeof site }).rightsIdentity = site;
+    (client as unknown as { org: { rightsIdentity: typeof org } }).org = { rightsIdentity: org } as never;
+    registerTools(server, client);
+    await byName('get_rights_identity').handler({ cbid: 's1' });
+    expect(site.get).toHaveBeenCalledWith('s1');
+    await byName('set_rights_identity').handler({ cbid: 's1', type: 'clerk', issuer: 'https://clerk.acme.example', authorizedParties: ['https://www.acme.example'] });
+    expect(site.set).toHaveBeenCalledWith('s1', { type: 'clerk', issuer: 'https://clerk.acme.example', authorizedParties: ['https://www.acme.example'] });
+    await byName('remove_rights_identity').handler({ cbid: 's1' });
+    expect(site.remove).toHaveBeenCalledWith('s1');
+    await byName('get_rights_identity_default').handler({});
+    await byName('set_rights_identity_default').handler({ type: 'oidc_jwt', issuer: 'https://id.acme.example', jwksUrl: 'https://id.acme.example/keys', sessionCookieName: 'sid' });
+    expect(org.set).toHaveBeenCalledWith({ type: 'oidc_jwt', issuer: 'https://id.acme.example', jwksUrl: 'https://id.acme.example/keys', sessionCookieName: 'sid' });
+    await byName('remove_rights_identity_default').handler({});
+    expect(org.get).toHaveBeenCalledOnce();
+    expect(org.remove).toHaveBeenCalledOnce();
+    for (const name of ['set_rights_identity', 'set_rights_identity_default']) expect((byName(name).config as { description?: string }).description).toMatch(/email_verified/);
   });
 
   it('whoami calls client.me and returns its JSON', async () => {
@@ -531,6 +656,21 @@ describe('registerTools', () => {
     expect(client.sites.snippet).not.toHaveBeenCalled();
   });
 
+  it('the rights-page domain tools forward cbid and hostname', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('list_rights_page_domains').handler({ cbid: 'a' });
+    expect(client.rightsPage.listDomains).toHaveBeenCalledWith('a');
+    const added = await byName('add_rights_page_domain').handler({ cbid: 'a', hostname: 'privacy.acme.com' });
+    expect(client.rightsPage.addDomain).toHaveBeenCalledWith('a', 'privacy.acme.com');
+    expect(added.content[0]!.text).toContain('pending_dns');
+    await byName('verify_rights_page_domain').handler({ cbid: 'a', hostname: 'privacy.acme.com' });
+    expect(client.rightsPage.verifyDomain).toHaveBeenCalledWith('a', 'privacy.acme.com');
+    await byName('remove_rights_page_domain').handler({ cbid: 'a', hostname: 'privacy.acme.com' });
+    expect(client.rightsPage.removeDomain).toHaveBeenCalledWith('a', 'privacy.acme.com');
+  });
+
   it('preview_banner mints a token for the region + language asked for', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
@@ -539,6 +679,16 @@ describe('registerTools', () => {
     expect(res.isError).toBeFalsy();
     expect(client.sites.previewToken).toHaveBeenCalledWith('a', { region: 'eu', lang: 'de' });
     expect(res.content[0]!.text).toContain('cm_preview');
+  });
+
+  it('create_rights_link mints a link for the signed-in person', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    const res = await byName('create_rights_link').handler({ cbid: 'a', email: 'p@x.com', userId: 'u1', rights: ['access'] });
+    expect(res.isError).toBeFalsy();
+    expect(client.rightsLinks.create).toHaveBeenCalledWith('a', { subject: { email: 'p@x.com', userId: 'u1' }, rights: ['access'] });
+    expect(res.content[0]!.text).toContain('/r/a?t=');
   });
 
   it('verify_site forwards cbid + method', async () => {
@@ -1005,6 +1155,37 @@ describe('Task 4 tools', () => {
     registerTools(server, c);
     await byName('remove_member').handler({ userId: 'u1' });
     expect(c.members.remove).toHaveBeenCalledWith('u1');
+  });
+
+  it('preview_rights_page previews a patch by default and a replace on request', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('preview_rights_page').handler({ cbid: 's1', page: { seo: { title: 'x' } } });
+    expect(client.rightsPage.dryRun).toHaveBeenCalledWith('s1', { seo: { title: 'x' } }, { mode: 'patch' });
+    await byName('preview_rights_page').handler({ cbid: 's1', page: { v: 1 }, mode: 'put' });
+    expect(client.rightsPage.dryRun).toHaveBeenLastCalledWith('s1', { v: 1 }, { mode: 'put' });
+    await byName('rollback_rights_page').handler({ cbid: 's1', version: 2 });
+    expect(client.rightsPage.rollback).toHaveBeenCalledWith('s1', 2, {});
+  });
+
+  it('publish_rights_page and rollback_rights_page forward baseUpdatedAt and warn that they go live and replace the draft', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('publish_rights_page').handler({ cbid: 's1', baseUpdatedAt: 7 });
+    expect(client.rightsPage.publish).toHaveBeenLastCalledWith('s1', { baseUpdatedAt: 7 });
+    await byName('publish_rights_page').handler({ cbid: 's1' });
+    expect(client.rightsPage.publish).toHaveBeenLastCalledWith('s1', {});
+    await byName('rollback_rights_page').handler({ cbid: 's1', version: 2, baseUpdatedAt: null });
+    expect(client.rightsPage.rollback).toHaveBeenLastCalledWith('s1', 2, { baseUpdatedAt: null });
+    const pub = byName('publish_rights_page').config.description;
+    const rb = byName('rollback_rights_page').config.description;
+    expect(pub).toMatch(/live at once/i);
+    expect(pub).toMatch(/baseUpdatedAt/);
+    expect(rb).toMatch(/live at once/i);
+    expect(rb).toMatch(/replaces the current draft/i);
+    expect(rb).toMatch(/unpublished edits are lost/i);
   });
 
   it('create_brand_kit forwards name + theme to client.brandKits.create', async () => {
