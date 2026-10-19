@@ -10,6 +10,7 @@ import { z, type ZodRawShape } from 'zod';
 import type { CookieMunchClient } from '@cookiemunch/sdk';
 import { registerConfigTools } from './tools-config.js';
 import { registerPlatformTools } from './tools-platform.js';
+import { registerIntegrationTools } from './tools-integrations.js';
 import { registerRightsPageTools, registerRightsTools } from './tools-rights-page.js';
 import { withDesignWarnings } from './design-warnings.js';
 // No @cookiemunch/core dependency: the v2 flow engine runs server-side behind the
@@ -295,7 +296,8 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       type: z.enum(['access', 'deletion', 'rectification', 'portability', 'opt-out']).describe('DSAR right being exercised.'),
       subjectEmail: z.string().describe('The data subject’s email.'),
       regulation: z.enum(['gdpr', 'ccpa']).describe('Governing regulation.'),
-      note: z.string().optional().describe('Optional free-text note.'),
+      note: z.string().optional().describe('Optional INTERNAL note; never shown to the data subject.'),
+      messageToSubject: z.string().max(2000).optional().describe('The line the data subject reads in the response notice. Never an API key.'),
       test: z
         .boolean()
         .optional()
@@ -307,6 +309,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         subjectEmail: a.subjectEmail as string,
         regulation: a.regulation as never,
         ...(typeof a.note === 'string' ? { note: a.note } : {}),
+        ...(typeof a.messageToSubject === 'string' ? { messageToSubject: a.messageToSubject } : {}),
         ...(a.test === true ? { test: true } : {}),
       }),
   );
@@ -356,8 +359,12 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     {
       id: z.string().describe('The DSAR id.'),
       toStatus: z.enum(['received', 'verifying', 'in_progress', 'completed', 'rejected']).describe('Target status.'),
+      messageToSubject: z.string().max(2000).optional().describe('Replaces the line the data subject reads in the notice — for a rejection, why.'),
     },
-    (a) => client.dsar.advance(a.id as string, a.toStatus as never),
+    (a) =>
+      typeof a.messageToSubject === 'string'
+        ? client.dsar.advance(a.id as string, a.toStatus as never, { messageToSubject: a.messageToSubject })
+        : client.dsar.advance(a.id as string, a.toStatus as never),
   );
 
   tool(
@@ -471,7 +478,17 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool('list_members', 'List the members of your organization.', {}, () => client.members.list());
 
-  tool('list_api_keys', 'List the API keys for your organization (secrets are not returned).', {}, () => client.keys.list());
+  tool('list_api_keys', 'List the API keys for your organization (secrets are not returned), with each key\u2019s scopes, expiry and when it was last used.', {}, () => client.keys.list());
+
+  tool(
+    'api_key_report',
+    'Key hygiene: keys not used for a while, keys with broad (full or wide write) access, and keys expiring soon, each with the reason. Read-only.',
+    {
+      unusedDays: z.number().int().min(1).max(3650).optional().describe('Unused for at least this many days (default 90).'),
+      expiringDays: z.number().int().min(1).max(3650).optional().describe('Expiring within this many days (default 14).'),
+    },
+    (a) => client.keys.report({ ...(a.unusedDays !== undefined ? { unusedDays: a.unusedDays as number } : {}), ...(a.expiringDays !== undefined ? { expiringDays: a.expiringDays as number } : {}) }),
+  );
 
   tool('get_usage', 'Get the current usage/quota summary for your organization.', {}, () => client.usage());
 
@@ -610,6 +627,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   registerConfigTools(tool, client);
 
   registerPlatformTools(tool, client);
+  registerIntegrationTools(tool, client);
   registerRightsTools(tool, client);
   registerRightsPageTools(tool, client);
 
@@ -711,9 +729,11 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       scopes: z.array(z.string()).optional(),
       cbids: z.array(z.string()).min(1).optional(),
       expiresInDays: z.number().int().min(1).max(3650).optional(),
+      expiresAt: z.string().optional().describe('Or the exact expiry, an ISO date-time (not with expiresInDays).'),
     },
     (a) =>
       client.keys.issue({
+        ...(a.expiresAt ? { expiresAt: a.expiresAt as string } : {}),
         ...(a.name ? { name: a.name as string } : {}),
         ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
         ...(a.cbids ? { cbids: a.cbids as string[] } : {}),
@@ -818,6 +838,67 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'list_cookie_presets',
+    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
+    { cbid: z.string() },
+    (a) => client.sites.cookiePresets(a.cbid as string),
+  );
+
+  tool(
+    'apply_cookie_preset',
+    'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId.',
+    {
+      cbid: z.string(),
+      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch']),
+      frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
+      crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
+      publicId: z.string().optional().describe('Chatly: the channel public id (ch_web_…).'),
+      dragging: z.boolean().optional().describe('Chatly: the launcher can be dragged (adds the drag-position key).'),
+      category: z.string().optional().describe('Chatly: the category for its keys. Default necessary.'),
+      dryRun: dryRunArg,
+    },
+    (a) => {
+      const params: Record<string, unknown> = {};
+      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category'] as const) if (a[k] !== undefined) params[k] = a[k];
+      return client.sites.applyCookiePreset(a.cbid as string, a.vendor as 'atlas', params, a.dryRun ? { dryRun: true } : undefined);
+    },
+  );
+
+  tool(
+    'remove_cookie_preset',
+    'Remove every declaration a vendor preset made on this site.',
+    { cbid: z.string(), vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch']), dryRun: dryRunArg },
+    (a) => client.sites.removeCookiePreset(a.cbid as string, a.vendor as 'atlas', a.dryRun ? { dryRun: true } : undefined),
+  );
+
+  tool(
+    'delete_observed_cookie',
+    'Remove every stored row of this name that crawls or real visits put in the site’s cookie list (e.g. a name someone reported that the site never sets). A declaration of it stays. If real visits keep reporting it, it comes back quarantined.',
+    { cbid: z.string(), name: z.string(), dryRun: dryRunArg },
+    async (a) => {
+      if (a.dryRun) return client.sites.deleteObservedCookie(a.cbid as string, a.name as string, { dryRun: true });
+      await client.sites.deleteObservedCookie(a.cbid as string, a.name as string);
+      return { deleted: a.name };
+    },
+  );
+
+  tool(
+    'purge_observed_cookies',
+    'Purge observed since T: remove every row a real visit first reported at or after `since` (and before `until`). Crawled rows and declarations stay. Rows from before provenance was recorded use their last-seen time, so run with dryRun first.',
+    {
+      cbid: z.string(),
+      since: z.union([z.string(), z.number()]).describe('ISO-8601 time or epoch milliseconds.'),
+      until: z.union([z.string(), z.number()]).optional().describe('Optional end of the window (exclusive).'),
+      dryRun: dryRunArg,
+    },
+    (a) => client.sites.purgeObservedCookies(
+      a.cbid as string,
+      { since: a.since as string | number, ...(a.until !== undefined ? { until: a.until as string | number } : {}) },
+      a.dryRun ? { dryRun: true } : undefined,
+    ),
+  );
+
+  tool(
     'get_blocked_pages',
     'Pages where the embed could not load its banner renderer — the page’s Content Security Policy or Trusted Types policy refused it, so nobody there can be asked for consent. An empty list is healthy. Read-only.',
     { cbid: z.string() },
@@ -833,15 +914,17 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'update_api_key',
-    'Rename an API key, or replace its scopes or the properties it is locked to. Only the fields given change; the secret does not.',
+    'Rename an API key, replace its scopes or the properties it is locked to, or set or remove its expiry. Only the fields given change; the secret does not.',
     {
       prefix: z.string(),
       name: z.string().optional(),
       scopes: z.array(z.string()).optional(),
       cbids: z.array(z.string()).min(1).optional(),
+      expiresAt: z.string().nullable().optional().describe('A new expiry (ISO date-time), or null to remove it.'),
     },
     (a) =>
       client.keys.update(a.prefix as string, {
+        ...(a.expiresAt !== undefined ? { expiresAt: a.expiresAt as string | null } : {}),
         ...(a.name !== undefined ? { name: a.name as string } : {}),
         ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
         ...(a.cbids ? { cbids: a.cbids as string[] } : {}),

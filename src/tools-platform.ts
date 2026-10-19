@@ -361,19 +361,53 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
     'connect_dsar_executor',
     'Connect a system that runs part of a rights request — an identity platform, a CRM, anything with a rights API. Cookie Munch is not specific to any platform: the `profile` describes that system\'s API (paths, the words it uses for export/erase, its status vocabulary, how it signs webhooks), so connecting a new one needs no code. The secret key is stored encrypted and never returned; the response carries the webhook URL to configure in that system. Sub-tasks open automatically once a request reaches fulfilment (after identity verification), and completions are picked up by webhook or by polling.',
     {
-      system: z.string().describe('The name this connection answers to in a plan, e.g. identity or crm.'),
-      baseUrl: z.string().describe("The system's public https origin."),
+      preset: z
+        .string()
+        .optional()
+        .describe('Build profile (and, unless the preset takes baseUrl as a param, baseUrl) from a versioned preset instead of sending profile. list_dsar_executor_presets names them, what each needs, and which wait on another platform.'),
+      presetVersion: z.number().int().optional().describe('With preset: the version to build. Default the latest.'),
+      orgId: z.string().optional().describe("A preset param, when the preset's params list it."),
+      atlasIdAppId: z.string().optional().describe("A preset param, when the preset's params list it: the identity platform's app id, so an erasure also revokes the app's grant."),
+      system: z.string().optional().describe('The name this connection answers to in a plan, e.g. identity or crm. Required unless the preset has a default.'),
+      baseUrl: z.string().optional().describe("The system's public https origin. Required unless the preset sets it."),
       secretKey: z.string().describe('Its API key, with whatever scope that system needs to export and erase a user.'),
       webhookSecret: z.string().optional().describe('Signing secret of its webhook endpoint. Optional: polling closes tasks without it.'),
       auto: z.boolean().optional().describe('Open a sub-task automatically when a request reaches fulfilment. Default true.'),
       profile: z
         .record(z.unknown())
-        .describe('How to drive that system: { open, poll, statuses } required, plus optional subjectLookup, auth, idempotencyHeader and webhook. See the connected-systems docs for the shape.'),
+        .optional()
+        .describe('How to drive that system: { open, poll, statuses } required, plus optional subjectLookup, auth, idempotencyHeader, grantRevoke and webhook. Omit it when using preset.'),
       dryRun: z.boolean().optional().describe('Validate everything and answer the connection that would be created, storing nothing.'),
     },
     (a) => {
       const { dryRun, ...input } = a as Record<string, unknown>;
       return dryRun === true ? client.fulfillment.dryRunConnectExecutor(input as never) : client.fulfillment.connectExecutor(input as never);
+    },
+  );
+
+  tool(
+    'list_dsar_executor_presets',
+    "The versioned executor presets: each one's name, params, latest version, and whether it is usable now or waits on another platform's API (waitingOn names the platform and its spec items). Also this org's canary address for connection tests. Read-only.",
+    {},
+    () => client.fulfillment.executorPresets(),
+  );
+
+  tool(
+    'upgrade_dsar_executor_preset',
+    "Rebuild a connection's profile and address from its preset's latest version (or presetVersion), keeping its id, credentials, system and scope — or adopt a preset on a hand-written connection by naming it. Answers with a diff. Use dryRun first: the answer shows exactly what would change and nothing is stored.",
+    {
+      id: z.string().describe('The connection id.'),
+      preset: z.string().optional().describe('Only to adopt a preset on a connection that has none.'),
+      presetVersion: z.number().int().optional(),
+      orgId: z.string().optional(),
+      atlasIdAppId: z.string().optional(),
+      dryRun: z.boolean().optional().describe('Answer the diff and change nothing.'),
+    },
+    (a) => {
+      const { id, dryRun, ...input } = a as Record<string, unknown>;
+      return dryRun === true
+        ? client.fulfillment.dryRunUpgradeExecutorPreset(id as string, input as never)
+        : client.fulfillment.upgradeExecutorPreset(id as string, input as never);
     },
   );
 
@@ -414,16 +448,18 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
 
   tool(
     'test_dsar_executor',
-    'Try a connected system against one email WITHOUT filing a rights request. Runs its subject lookup and returns the raw upstream answers (credentials removed) and a one-line verdict. The open step is rendered but not sent, unless open is true on an export, which opens and polls a real export once. An erasure is never sent by a test.',
+    'Try a connected system against one email (or the org canary, canary: true) WITHOUT filing a rights request. Runs its subject lookup and returns the raw upstream answers (credentials removed) and a one-line verdict; code base_url_redirects means its baseUrl redirects and the verdict names where. The open step is rendered but not sent, unless open is true on an export, which opens and polls a real export once. An erasure is never sent by a test.',
     {
       id: z.string().describe('The connection id.'),
-      email: z.string().describe('The address to look up.'),
+      email: z.string().optional().describe('The address to look up. Omit it with canary.'),
+      canary: z.boolean().optional().describe("Use this org's canary address — no real person involved. A canary locate also updates the connection's health."),
       operation: z.enum(['locate', 'export', 'erase']).optional().describe('Default locate.'),
       open: z.boolean().optional().describe('For export only: open a real export and poll it once.'),
     },
     (a) =>
       client.fulfillment.testExecutor(a.id as string, {
-        email: a.email as string,
+        ...(typeof a.email === 'string' ? { email: a.email } : {}),
+        ...(a.canary === true ? { canary: true } : {}),
         ...(a.operation ? { operation: a.operation as 'locate' | 'export' | 'erase' } : {}),
         ...(typeof a.open === 'boolean' ? { open: a.open } : {}),
       }),

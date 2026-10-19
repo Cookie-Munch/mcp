@@ -194,6 +194,8 @@ const EXPECTED_TOOLS = [
   'get_dsar_task',
   'test_dsar_executor',
   'test_dsar_executor_webhook',
+  'list_dsar_executor_presets',
+  'upgrade_dsar_executor_preset',
   'list_dsar_executor_webhook_deliveries',
   'get_dsr_fulfillment_status',
   'inspect_ai_prompt',
@@ -242,6 +244,13 @@ const EXPECTED_TOOLS = [
   'set_flow',
   'get_install_snippet',
   'preview_banner',
+  'update_site',
+  'api_key_report',
+  'integration_health',
+  'provision_product',
+  'list_site_partners',
+  'link_site_partner',
+  'unlink_site_partner',
   'create_rights_link',
   'list_rights_page_domains',
   'add_rights_page_domain',
@@ -343,6 +352,11 @@ const EXPECTED_TOOLS = [
   'undeclare_cookie',
   'retire_cookie',
   'unretire_cookie',
+  'list_cookie_presets',
+  'apply_cookie_preset',
+  'remove_cookie_preset',
+  'delete_observed_cookie',
+  'purge_observed_cookies',
   'roll_webhook_secret',
   'test_webhook',
   'list_webhook_dead_letters',
@@ -621,6 +635,14 @@ describe('registerTools', () => {
     expect(client.dsar.advance).toHaveBeenCalledWith('d1', 'verifying');
   });
 
+  it('advance_dsar forwards messageToSubject (CKM-S-04)', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('advance_dsar').handler({ id: 'd1', toStatus: 'rejected', messageToSubject: 'No account matches this address.' });
+    expect(client.dsar.advance).toHaveBeenCalledWith('d1', 'rejected', { messageToSubject: 'No account matches this address.' });
+  });
+
   it('scan_site forwards cbid to client.sites.scan', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
@@ -680,6 +702,31 @@ describe('registerTools', () => {
     expect(JSON.parse(res.content[0]!.text)).toEqual({ unretired: 'old' });
     await byName('unretire_cookie').handler({ cbid: 's1', name: 'old', dryRun: true });
     expect(unretire).toHaveBeenLastCalledWith('s1', 'old', { dryRun: true });
+  });
+
+  it('cookie presets and observed-row removal pass their arguments (CKM-S-02, S-29)', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const presets = vi.fn(async () => ({ presets: [] }));
+    const apply = vi.fn(async () => ({}));
+    const remove = vi.fn(async () => ({}));
+    const del = vi.fn(async () => undefined);
+    const purge = vi.fn(async () => ({ removed: [], count: 0 }));
+    Object.assign(client.sites, { cookiePresets: presets, applyCookiePreset: apply, removeCookiePreset: remove, deleteObservedCookie: del, purgeObservedCookies: purge });
+    registerTools(server, client);
+    await byName('list_cookie_presets').handler({ cbid: 's1' });
+    expect(presets).toHaveBeenCalledWith('s1');
+    await byName('apply_cookie_preset').handler({ cbid: 's1', vendor: 'chatly', publicId: 'ch_1', dryRun: true });
+    expect(apply).toHaveBeenCalledWith('s1', 'chatly', { publicId: 'ch_1' }, { dryRun: true });
+    await byName('apply_cookie_preset').handler({ cbid: 's1', vendor: 'atlas', frontendApiHost: 'auth.a.com', crossSubdomainCookies: false });
+    expect(apply).toHaveBeenLastCalledWith('s1', 'atlas', { frontendApiHost: 'auth.a.com', crossSubdomainCookies: false }, undefined);
+    await byName('remove_cookie_preset').handler({ cbid: 's1', vendor: 'atlas' });
+    expect(remove).toHaveBeenCalledWith('s1', 'atlas', undefined);
+    const res = await byName('delete_observed_cookie').handler({ cbid: 's1', name: 'CookieConsent' });
+    expect(del).toHaveBeenCalledWith('s1', 'CookieConsent');
+    expect(JSON.parse(res.content[0]!.text)).toEqual({ deleted: 'CookieConsent' });
+    await byName('purge_observed_cookies').handler({ cbid: 's1', since: '2026-10-19T13:21:40Z', dryRun: true });
+    expect(purge).toHaveBeenCalledWith('s1', { since: '2026-10-19T13:21:40Z' }, { dryRun: true });
   });
 
   it('create_webhook forwards url + events + cbid', async () => {

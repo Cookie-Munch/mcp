@@ -105,7 +105,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
   const setLanguagesSchema = z.object({
     cbid: z.string().describe('Site identifier (cbid).'),
     defaultCulture: z.string().optional().describe('Default locale/culture code, e.g. "en", "fr". Stored in i18n.defaultCulture.'),
-    autoDetect: z.boolean().optional().describe('Auto-detect visitor language from browser locale. Stored in i18n.autoDetect.'),
+    autoDetect: z.union([z.boolean(), z.literal('page')]).optional().describe('true: follow the visitor\'s browser language; false: defaultCulture for everyone; "page": follow the page\'s <html lang>, then the browser. Stored in i18n.autoDetect.'),
     translations: z.record(z.record(z.unknown())).optional().describe('Per-locale banner copy overrides. Merged onto banner.i18n (locale keys preserved).'),
     overrides: z
       .record(z.object({ banner: z.record(z.string()).optional(), categories: z.record(z.object({ label: z.string().optional(), description: z.string().optional() })).optional() }))
