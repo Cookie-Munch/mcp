@@ -839,7 +839,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'list_cookie_presets',
-    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
+    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referally): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
     { cbid: z.string() },
     (a) => client.sites.cookiePresets(a.cbid as string),
   );
@@ -849,17 +849,19 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId.',
     {
       cbid: z.string(),
-      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch']),
+      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referally']),
       frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
       crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
       publicId: z.string().optional().describe('Chatly: the channel public id (ch_web_…).'),
       dragging: z.boolean().optional().describe('Chatly: the launcher can be dragged (adds the drag-position key).'),
-      category: z.string().optional().describe('Chatly: the category for its keys. Default necessary.'),
+      category: z.string().optional().describe('Chatly: the category for its keys (default necessary). Referally: default the site\'s referrals category, else marketing.'),
+      cookieDomain: z.string().optional().describe('Referally: the domain aff.js sets referally_ctx on, e.g. .example.com. Default the site domain.'),
+      cookieDays: z.number().int().min(1).max(400).optional().describe('Referally: how long the cookie lives, 1 to 400 days. Default 60.'),
       dryRun: dryRunArg,
     },
     (a) => {
       const params: Record<string, unknown> = {};
-      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category'] as const) if (a[k] !== undefined) params[k] = a[k];
+      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category', 'cookieDomain', 'cookieDays'] as const) if (a[k] !== undefined) params[k] = a[k];
       return client.sites.applyCookiePreset(a.cbid as string, a.vendor as 'atlas', params, a.dryRun ? { dryRun: true } : undefined);
     },
   );
@@ -867,7 +869,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'remove_cookie_preset',
     'Remove every declaration a vendor preset made on this site.',
-    { cbid: z.string(), vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch']), dryRun: dryRunArg },
+    { cbid: z.string(), vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referally']), dryRun: dryRunArg },
     (a) => client.sites.removeCookiePreset(a.cbid as string, a.vendor as 'atlas', a.dryRun ? { dryRun: true } : undefined),
   );
 

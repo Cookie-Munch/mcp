@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const baseUrl = process.env.COOKIEMUNCH_BASE_URL ?? 'https://api.cookiemunch.net';
-  const server = createCookieMunchMcp({ apiKey, baseUrl });
+  const server = createCookieMunchMcp({ apiKey, baseUrl, ...(process.env.COOKIEMUNCH_USER_AGENT ? { userAgent: process.env.COOKIEMUNCH_USER_AGENT } : {}) });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // The process now stays alive serving MCP requests over stdio.
