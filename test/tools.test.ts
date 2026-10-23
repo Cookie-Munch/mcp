@@ -95,6 +95,9 @@ function mockClient(): CookieMunchClient {
       list: vi.fn(async () => []),
       save: vi.fn(async () => ({ record: { subjectId: 'u1', purposes: {} } })),
     },
+    preferenceCenter: {
+      mintToken: vi.fn(async () => ({ token: 't', expiresAt: '2026-01-01T00:00:00.000Z' })),
+    },
     members: {
       list: vi.fn(async () => []),
       invite: vi.fn(async () => ({ member: { userId: 'u1', email: 'new@x.com', role: 'member' } })),
@@ -329,6 +332,12 @@ const EXPECTED_TOOLS = [
   'set_mail_provider',
   'remove_mail_provider',
   'test_mail_provider',
+  'get_org_controller',
+  'set_org_controller',
+  'remove_org_controller',
+  'get_consent_sync_secret',
+  'rotate_consent_sync_secret',
+  'remove_consent_sync_secret',
   'get_rights_captcha',
   'set_rights_captcha',
   'remove_rights_captcha',
@@ -364,6 +373,7 @@ const EXPECTED_TOOLS = [
   'erase_dsar_subject',
   'export_dsar_subject',
   'get_preference',
+  'mint_preference_center_token',
   // --- the hosted rights page ---
   'get_rights_page',
   'update_rights_page',
@@ -453,6 +463,22 @@ describe('registerTools', () => {
   });
 
   /** The credential goes in, never comes out; test passes the recipient through. */
+  it('org-controller tools call org.controller', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const ctl = { get: vi.fn(async () => ({ set: false, updatedAt: null })), set: vi.fn(async () => ({ set: true })), remove: vi.fn(async () => {}) };
+    (client as unknown as { org: { controller: typeof ctl } }).org = { controller: ctl } as never;
+    registerTools(server, client);
+    await byName('get_org_controller').handler({});
+    expect(ctl.get).toHaveBeenCalledOnce();
+    await byName('set_org_controller').handler({ legalName: 'Crossly Ltd', contactEmail: 'p@crossly.example' });
+    expect(ctl.set).toHaveBeenCalledWith({ legalName: 'Crossly Ltd', contactEmail: 'p@crossly.example' });
+    const res = await byName('remove_org_controller').handler({});
+    expect(ctl.remove).toHaveBeenCalledOnce();
+    expect(res.content[0]!.text).toContain('removed');
+    expect((byName('set_org_controller').config as { description?: string }).description).toMatch(/rights:write/);
+  });
+
   it('mail-provider tools call org.mailProvider', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
@@ -472,6 +498,19 @@ describe('registerTools', () => {
     const res = await byName('remove_mail_provider').handler({});
     expect(mp.remove).toHaveBeenCalledOnce();
     expect(res.content[0]!.text).toContain('removed');
+  });
+
+  it('consent-sync secret tools call consentSyncSecret, and warn what a rotation stops', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    const s = { get: vi.fn(async () => ({})), rotate: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    (client as unknown as { consentSyncSecret: typeof s }).consentSyncSecret = s;
+    registerTools(server, client);
+    await byName('get_consent_sync_secret').handler({ cbid: 's1' });
+    await byName('rotate_consent_sync_secret').handler({ cbid: 's1' });
+    await byName('remove_consent_sync_secret').handler({ cbid: 's1' });
+    expect([s.get, s.rotate, s.remove].map((f) => f.mock.calls[0])).toEqual([['s1'], ['s1'], ['s1']]);
+    expect((byName('rotate_consent_sync_secret').config as { description?: string }).description).toMatch(/stops the old secret/);
   });
 
   it('rights-captcha tools call rightsCaptcha and org.rightsCaptcha, and say what off costs', async () => {
@@ -1336,6 +1375,16 @@ describe('Task 4 tools', () => {
     registerTools(server, c);
     await byName('save_preference').handler({ subjectId: 'u1', purposes: { newsletter: true } });
     expect(c.preferences.save).toHaveBeenCalledWith('u1', { newsletter: true });
+  });
+
+  it('mint_preference_center_token sends one of email / subjectId, and the ttl only when given', async () => {
+    const { server, byName } = fakeServer();
+    const c = mockClient();
+    registerTools(server, c);
+    await byName('mint_preference_center_token').handler({ cbid: 'cb1', email: 'a@x.com' });
+    expect(c.preferenceCenter.mintToken).toHaveBeenLastCalledWith({ cbid: 'cb1', email: 'a@x.com' });
+    await byName('mint_preference_center_token').handler({ cbid: 'cb1', subjectId: 'u1', ttlSeconds: 60 });
+    expect(c.preferenceCenter.mintToken).toHaveBeenLastCalledWith({ cbid: 'cb1', subjectId: 'u1', ttlSeconds: 60 });
   });
 
   it('issue_api_key calls client.keys.issue', async () => {

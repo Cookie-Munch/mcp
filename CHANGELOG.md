@@ -2,6 +2,13 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.5.0 (2026-10-23)
+
+- Added: `get_org_controller`, `set_org_controller`, `remove_org_controller`.
+- Added: `get_consent_sync_secret`, `rotate_consent_sync_secret`, `remove_consent_sync_secret`.
+- Added: `mint_preference_center_token`.
+- Changed: built on `@cookiemunch/sdk` 0.5.0.
+
 ## 0.4.1 (2026-10-22)
 
 - Added: `apply_cookie_preset` takes `referally` (`cookieDomain`, `cookieDays`, `category`).

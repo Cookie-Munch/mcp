@@ -12,7 +12,7 @@ import { registerTools, type ToolServer } from './tools.js';
 export { registerTools, type ToolServer, type ToolResult } from './tools.js';
 
 /** This package's version, sent in the default User-Agent (a test pins it to package.json). */
-export const MCP_VERSION = '0.4.1';
+export const MCP_VERSION = '0.5.0';
 
 export interface CookieMunchMcpOptions {
   apiKey: string;

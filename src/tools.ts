@@ -7,7 +7,7 @@
  */
 
 import { z, type ZodRawShape } from 'zod';
-import type { CookieMunchClient } from '@cookiemunch/sdk';
+import type { CenterTokenInput, CookieMunchClient } from '@cookiemunch/sdk';
 import { registerConfigTools } from './tools-config.js';
 import { registerPlatformTools } from './tools-platform.js';
 import { registerIntegrationTools } from './tools-integrations.js';
@@ -722,6 +722,23 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'mint_preference_center_token',
+    'Mint a hosted preference-centre token for one visitor (POST /v1/preference-center/tokens), for a page to pass to CookieMunch.setSubjectToken. Give exactly one of email (resolved as the emailed preference link resolves it; an unknown address is subject_not_found) or subjectId. The token is a credential that opens that person’s subscriptions and profile until expiresAt: never paste it into a shared URL, a ticket or a log, and keep ttlSeconds short (default 3600, max 86400). Needs subscriptions:write and profile:write, plus identity:read by email.',
+    {
+      cbid: z.string().describe('A site of your organisation.'),
+      email: z.string().optional().describe('The visitor’s address. Give this or subjectId, not both.'),
+      subjectId: z.string().optional().describe('The subject id. Give this or email, not both.'),
+      ttlSeconds: z.number().int().min(1).max(86400).optional(),
+    },
+    (a) =>
+      client.preferenceCenter.mintToken({
+        cbid: a.cbid as string,
+        ...(a.email !== undefined ? { email: a.email as string } : { subjectId: a.subjectId as string }),
+        ...(a.ttlSeconds !== undefined ? { ttlSeconds: a.ttlSeconds as number } : {}),
+      } as CenterTokenInput),
+  );
+
+  tool(
     'issue_api_key',
     'Issue a new API key. The secret is returned once and never again. Prefer the least privilege the job needs: `scopes` limits what it can do, `cbids` locks it to specific sites (it then cannot reach anything org-wide), `expiresInDays` retires it. Omitting all three mints a full-access, org-wide, non-expiring key.',
     {
@@ -990,6 +1007,41 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     },
   );
 
+  // ---- the organisation's own data-controller identity, named on every rights notice ----
+  tool(
+    'get_org_controller',
+    'The organisation’s own data-controller identity: who every rights notice names, before any site config controller block. `set: false` when there is none. Read-only.',
+    {},
+    () => client.org.controller.get(),
+  );
+
+  tool(
+    'set_org_controller',
+    'Set the organisation’s data-controller identity. Replaces it: a field left out is removed. Needed for a notice on a rights request filed without a cbid when the organisation has several sites. Needs an unscoped key or rights:write. Audited.',
+    {
+      legalName: z.string().describe('Required: the legal name of the data controller.'),
+      contactEmail: z.string().optional().describe('Where people reach the controller about their data.'),
+      address: z.string().optional(),
+      dpoContact: z.string().optional().describe('The Data Protection Officer: a name, an email address, or both.'),
+    },
+    (a) => client.org.controller.set({
+      legalName: a.legalName as string,
+      ...(a.contactEmail !== undefined ? { contactEmail: a.contactEmail as string } : {}),
+      ...(a.address !== undefined ? { address: a.address as string } : {}),
+      ...(a.dpoContact !== undefined ? { dpoContact: a.dpoContact as string } : {}),
+    }),
+  );
+
+  tool(
+    'remove_org_controller',
+    'Remove the organisation’s data-controller identity. Notices then name the request’s site config controller block; a request without a cbid in an organisation with several sites gets no notice.',
+    {},
+    async () => {
+      await client.org.controller.remove();
+      return { removed: true };
+    },
+  );
+
   // ---- the rights page's captcha: the customer's own keys, or off (Cookie Munch's own is never used there) ----
   const CAPTCHA_OFF = 'Off removes spam protection beyond the hidden spam-trap field, the rate limits and the email code: expect more spam requests. Own keys are recommended.';
   const captchaInput = {
@@ -1006,6 +1058,27 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     ...(a.secret !== undefined ? { secret: a.secret as string } : {}),
     ...(a.minScore !== undefined ? { minScore: a.minScore as number } : {}),
   });
+
+  tool(
+    'get_consent_sync_secret',
+    'Whether hosted consent sync is set up for a site: `configured`, `secretLast4`, `createdAt`. Never returns the secret. Read-only.',
+    { cbid: z.string() },
+    (a) => client.consentSyncSecret.get(a.cbid as string),
+  );
+
+  tool(
+    'rotate_consent_sync_secret',
+    'Mint a site’s consent-sync signing secret, or rotate it. The answer carries `secret` this once; the site owner’s server signs consent-sync tokens with it (mintConsentSyncToken in @cookiemunch/sdk). Rotating stops the old secret at once, so every page holding a token signed with it stops syncing until it gets a new token. Never put the secret in a page. Needs sites:write and consent:write.',
+    { cbid: z.string() },
+    (a) => client.consentSyncSecret.rotate(a.cbid as string),
+  );
+
+  tool(
+    'remove_consent_sync_secret',
+    'Remove a site’s consent-sync secret: hosted consent sync stops until a new one is minted. Needs sites:write and consent:write.',
+    { cbid: z.string() },
+    (a) => client.consentSyncSecret.remove(a.cbid as string),
+  );
 
   tool(
     'get_rights_captcha',
