@@ -358,6 +358,13 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'get_dsar_executor',
+    'One connected system with its full profile (never its credentials). Read it before changing the profile: update_dsar_executor replaces the whole profile, so send back the complete one with your change made.',
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.executor(a.id as string),
+  );
+
+  tool(
     'connect_dsar_executor',
     'Connect a system that runs part of a rights request — an identity platform, a CRM, anything with a rights API. Cookie Munch is not specific to any platform: the `profile` describes that system\'s API (paths, the words it uses for export/erase, its status vocabulary, how it signs webhooks), so connecting a new one needs no code. The secret key is stored encrypted and never returned; the response carries the webhook URL to configure in that system. Sub-tasks open automatically once a request reaches fulfilment (after identity verification), and completions are picked up by webhook or by polling.',
     {
@@ -367,12 +374,15 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
         .describe('Build profile (and, unless the preset takes baseUrl as a param, baseUrl) from a versioned preset instead of sending profile. list_dsar_executor_presets names them, what each needs, and which wait on another platform.'),
       presetVersion: z.number().int().optional().describe('With preset: the version to build. Default the latest.'),
       orgId: z.string().optional().describe("A preset param, when the preset's params list it."),
-      atlasIdAppId: z.string().optional().describe("A preset param, when the preset's params list it: the identity platform's app id, so an erasure also revokes the app's grant."),
+      atlasIdAppId: z.string().optional().describe("A preset param, when the preset's params list it: the identity platform's app id, kept for revokeAtlasIdGrant."),
+      revokeAtlasIdGrant: z.boolean().optional().describe('A preset param, when the preset\'s params list it: default false. True adds an optional step that revokes the person\'s app grant on erasure; a credential without the scope reports skipped: insufficient_scope.'),
+      label: z.string().optional().describe('Your name for the credential, shown beside keyPrefix.'),
       system: z.string().optional().describe('The name this connection answers to in a plan, e.g. identity or crm. Required unless the preset has a default.'),
       baseUrl: z.string().optional().describe("The system's public https origin. Required unless the preset sets it."),
       secretKey: z.string().describe('Its API key, with whatever scope that system needs to export and erase a user.'),
       webhookSecret: z.string().optional().describe('Signing secret of its webhook endpoint. Optional: polling closes tasks without it.'),
       auto: z.boolean().optional().describe('Open a sub-task automatically when a request reaches fulfilment. Default true.'),
+      orchestrator: z.union([z.literal(1), z.literal(2)]).optional().describe('How it takes part in cases. Default 2 (v2 headers on every call); 1 is the v1 adapter. The answer carries a completionSecret, shown once, that signs its completions.'),
       profile: z
         .record(z.unknown())
         .optional()
@@ -386,6 +396,13 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'get_category_registry',
+    'The reserved consent categories any site can switch on with categories.suite (support_chat, referrals): each one\u2019s stance, the standard category to fall back on, the regulatory basis, its wording in every banner language, and known vendors. Public, read-only.',
+    {},
+    () => client.consent.categoryRegistry(),
+  );
+
+  tool(
     'list_dsar_executor_presets',
     "The versioned executor presets: each one's name, params, latest version, and whether it is usable now or waits on another platform's API (waitingOn names the platform and its spec items). Also this org's canary address for connection tests. Read-only.",
     {},
@@ -394,13 +411,15 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
 
   tool(
     'upgrade_dsar_executor_preset',
-    "Rebuild a connection's profile and address from its preset's latest version (or presetVersion), keeping its id, credentials, system and scope — or adopt a preset on a hand-written connection by naming it. Answers with a diff. Use dryRun first: the answer shows exactly what would change and nothing is stored.",
+    "Rebuild a connection's profile and address from its preset's latest version (or presetVersion), keeping its id, credentials, system and scope — or adopt a preset on a hand-written connection by naming it. Your hand edits (profileOverrides) are kept and listed in the diff as kept or conflict; acceptPreset takes the preset's value for a path. A pinned connection (presetPinned) is refused. Use dryRun first: the answer shows exactly what would change and nothing is stored.",
     {
       id: z.string().describe('The connection id.'),
       preset: z.string().optional().describe('Only to adopt a preset on a connection that has none.'),
       presetVersion: z.number().int().optional(),
       orgId: z.string().optional(),
       atlasIdAppId: z.string().optional(),
+      revokeAtlasIdGrant: z.boolean().optional(),
+      acceptPreset: z.array(z.string()).optional().describe('Overridden paths (profileOverrides) that take the preset\'s value again, e.g. ["profile.grantRevoke"]. Every other override is kept.'),
       dryRun: z.boolean().optional().describe('Answer the diff and change nothing.'),
     },
     (a) => {
@@ -427,6 +446,20 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
     "The last 50 deliveries to a connected system's webhook, newest first, each with whether it verified and, if not, the stage and reason. Never includes the secret, the signature or the body (only a short hash and size). Read-only.",
     { id: z.string().describe('The connection id.') },
     (a) => client.fulfillment.executorWebhookDeliveries(a.id as string),
+  );
+
+  tool(
+    'recheck_dsar_executor',
+    "Re-check a connected system now: a canary test (no real person) whose answer is recorded as the connection's health, so a stale failure clears at once. For after deploying that system's rights API.",
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.recheckExecutor(a.id as string),
+  );
+
+  tool(
+    'list_dsar_executor_health_history',
+    "A connected system's last health checks, newest first (each with ok, verdict and lastCheckedAt). Read-only.",
+    { id: z.string().describe('The connection id.'), limit: z.number().int().min(1).max(50).optional().describe('Default 50.') },
+    (a) => client.fulfillment.executorHealthHistory(a.id as string, typeof a.limit === 'number' ? { limit: a.limit } : {}),
   );
 
   tool(
@@ -463,6 +496,20 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
         ...(a.operation ? { operation: a.operation as 'locate' | 'export' | 'erase' } : {}),
         ...(typeof a.open === 'boolean' ? { open: a.open } : {}),
       }),
+  );
+
+  tool(
+    'run_executor_conformance',
+    'Run the cm-standard-v2 conformance kit against a connected system: every rule of the open executor contract (lookup by email and identity, no email match across identities, executeAfter honoured, idempotency, cancel keeps data, 404s, X-Version), on this org\'s canary subject only — no real person. Each rule passes, fails or is skipped by name. Only for a cm-standard-v2 connection.',
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.executorConformance(a.id as string),
+  );
+
+  tool(
+    'roll_executor_completion_secret',
+    'Mint a new completion secret for a connected system\'s signed completions. The new secret is in the answer, once — hand it to that system. The old one keeps verifying for 24 hours.',
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.rollExecutorCompletionSecret(a.id as string),
   );
 
   tool(

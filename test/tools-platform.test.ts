@@ -20,7 +20,7 @@ function fakeClient() {
   const spy = (method: string) => vi.fn(async (...args: unknown[]) => { calls.push({ method, args }); return { ok: method }; });
   const client = {
     me: spy('me'),
-    sites: { list: spy('sites.list'), create: spy('x'), get: spy('x'), delete: spy('x'), getConfig: spy('x'), putConfig: spy('x'), cookies: spy('x'), scan: spy('x'), scanStatus: spy('x'), ab: spy('x'), snippet: spy('x'), verify: spy('x'), brand: spy('x'), getFlow: spy('x'), setFlow: spy('x'), editFlow: spy('x'), policy: spy('x') },
+    sites: { list: spy('sites.list'), create: spy('x'), get: spy('x'), delete: spy('x'), getConfig: spy('x'), putConfig: spy('x'), cookies: spy('x'), scan: spy('x'), scanStatus: spy('x'), ab: spy('x'), snippet: spy('x'), verify: spy('x'), brand: spy('x'), getBrand: spy('x'), setBrand: spy('x'), getFlow: spy('x'), setFlow: spy('x'), editFlow: spy('x'), policy: spy('x') },
     consent: { stats: spy('x'), log: spy('x'), exportCsv: spy('x'), verifyChain: spy('x'), receipt: spy('x'), eraseSubject: spy('x'), exportSubject: spy('x'), ingest: spy('x') },
     dsar: { list: spy('x'), create: spy('x'), advance: spy('x'), response: spy('x') },
     vendors: { list: spy('x'), create: spy('x') },
@@ -30,6 +30,7 @@ function fakeClient() {
     keys: { list: spy('x'), create: spy('x') },
     members: { list: spy('x') },
     usage: spy('x'),
+    entitlements: spy('x'),
     banners: { list: spy('x'), create: spy('x'), get: spy('x'), update: spy('x'), delete: spy('x'), assign: spy('x'), publish: spy('x') },
     webhooks: { list: spy('x'), create: spy('x'), delete: spy('x') },
     identity: { resolve: spy('identity.resolve'), link: spy('identity.link'), cluster: spy('identity.cluster') },

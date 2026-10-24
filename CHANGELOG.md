@@ -2,6 +2,15 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.6.0 (2026-10-24)
+
+- Added: `open_dsar_case`, `get_dsar_case`, `cancel_dsar_case`, `get_dsar_case_receipt`, `find_dsar_by_trace`, `get_dsar_settings`, `set_dsar_settings`, `get_subject_card`, `run_executor_conformance`, `roll_executor_completion_secret`. The grace period is opt-in for existing sites (they read `graceDays: 0` until set).
+- Added: `get_dsar_executor`, `recheck_dsar_executor`, `list_dsar_executor_health_history`, `run_executor_conformance`, `roll_executor_completion_secret`, `get_subject_card`.
+- Added: `get_own_key`, `vend_api_key`, `list_api_keys_standard`, `revoke_leaked_key`; `list_partner_links`, `create_partner_link`, `revoke_partner_link`; `get_resource_tags`, `update_resource_tags`.
+- Added: `list_cookie_suggestions`, `declare_cookie_suggestions`, `import_cookie_manifest`, `get_embed_manifest`, `get_category_registry`, `get_site_brand`, `import_site_brand`, `get_consent_insights`, `get_entitlements`, `get_provision_env`.
+- Added: `list_health_waivers`, `set_health_waiver`, `remove_health_waiver`, `get_audit_sink`, `set_audit_sink`, `remove_audit_sink`, `replay_webhook`.
+- Changed: built on `@cookiemunch/sdk` 0.6.0.
+
 ## 0.5.0 (2026-10-23)
 
 - Added: `get_org_controller`, `set_org_controller`, `remove_org_controller`.

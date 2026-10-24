@@ -11,6 +11,7 @@ import type { CenterTokenInput, CookieMunchClient } from '@cookiemunch/sdk';
 import { registerConfigTools } from './tools-config.js';
 import { registerPlatformTools } from './tools-platform.js';
 import { registerIntegrationTools } from './tools-integrations.js';
+import { registerKeyAndTagTools } from './tools-keys-tags.js';
 import { registerRightsPageTools, registerRightsTools } from './tools-rights-page.js';
 import { withDesignWarnings } from './design-warnings.js';
 // No @cookiemunch/core dependency: the v2 flow engine runs server-side behind the
@@ -232,6 +233,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'get_consent_insights',
+    'Opt-in rates for a site: totals with the decision rate (decisions per banner impression), opt-in by region, and by A/B variant (all-time counters). Opt-in by language and time-to-decision are not recorded; those fields are null and notRecorded says why. Read-only.',
+    { ...cbid, ...range },
+    (a) => client.consent.insights(a.cbid as string, { from: a.from as number | undefined, to: a.to as number | undefined }),
+  );
+
+  tool(
     'get_consent_log',
     'Get recent anonymised consent records for a site.',
     { ...cbid, ...range, limit: z.number().optional().describe('Max records to return (default 200).') },
@@ -253,7 +261,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
   tool(
     'update_dsar_executor',
-    'Change a connected system in place — its profile, address, credential or auto flag. Only what you pass changes; the stored credential is kept unless you give a new one. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
+    'Change a connected system in place — its profile, address, credential, label (null removes it), auto flag or presetPinned (true stops preset upgrades). Only what you pass changes; the stored credential is kept unless you give a new one. A profile edit on a preset-built connection is recorded in profileOverrides, so an upgrade keeps it. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
     {
       id: z.string(),
       patch: z.record(z.unknown()),
@@ -351,6 +359,102 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Mark a CLOSED rights request (completed or rejected) as a test request, after the fact — for trial requests filed before test: true existed. An open request is refused (request_not_closed), so a live obligation can never be relabelled. Recorded in the audit log; afterwards delete_test_dsar can remove it. Returns { request, changed }.',
     { id: z.string().describe('The closed request id.') },
     (a) => client.dsar.markTest(a.id as string),
+  );
+
+  tool(
+    'open_dsar_case',
+    'Open a rights case fanned out to every connected system — an account closure from a product, an erasure, an export. type takes the canonical words (access, deletion, closure, restriction, rectification) or an alias (erasure, erase, export). For an erasure or closure, executeAfter = now + the site\'s graceDays is sent to every system and nothing is erased before it. source product or atlas attests the person (needs dsar:write; atlas needs subject.identity from the site\'s own sign-in issuer); admin files it received for verification. Pass idempotencyKey (16–128 chars) so a retry answers the same case.',
+    {
+      cbid: z.string(),
+      type: z.string().describe('access | deletion | closure | restriction | rectification, or erasure / erase / export.'),
+      emails: z.array(z.string()).optional().describe("The person's addresses."),
+      identity: z
+        .object({ iss: z.string(), sub: z.string(), ext: z.string().optional(), principal: z.string().optional() })
+        .optional()
+        .describe('A signed-in identity from the site\'s sign-in issuer. People are never linked on email when it is present.'),
+      source: z.enum(['product', 'atlas', 'admin']).optional(),
+      reason: z.string().optional(),
+      skipSystems: z.array(z.string()).optional().describe('System names, connection ids, or self.'),
+      fulfill: z.boolean().optional(),
+      test: z.boolean().optional(),
+      idempotencyKey: z.string().optional(),
+      trace: z.string().optional().describe('An X-ForgeDeck-Trace to keep, from the caller.'),
+    },
+    (a) =>
+      client.dsar.openCase(
+        {
+          cbid: a.cbid as string,
+          type: a.type as never,
+          subject: { emails: (a.emails as string[] | undefined) ?? [], ...(a.identity ? { identity: a.identity as never } : {}) },
+          ...(a.source ? { source: a.source as 'product' | 'atlas' | 'admin' } : {}),
+          ...(typeof a.reason === 'string' ? { reason: a.reason } : {}),
+          ...(Array.isArray(a.skipSystems) ? { skipSystems: a.skipSystems as string[] } : {}),
+          ...(typeof a.fulfill === 'boolean' ? { fulfill: a.fulfill } : {}),
+          ...(a.test === true ? { test: true } : {}),
+        },
+        {
+          ...(typeof a.idempotencyKey === 'string' ? { idempotencyKey: a.idempotencyKey } : {}),
+          ...(typeof a.trace === 'string' ? { trace: a.trace } : {}),
+        },
+      ),
+  );
+
+  tool(
+    'get_dsar_case',
+    'One case across every connected system: its status (pending, scheduled, processing, completed, completed_with_retention, rejected, cancelled), executeAfter, trace and one row per system with its status, eta and retention lines. Read-only.',
+    { id: z.string() },
+    (a) => client.dsar.getCase(a.id as string),
+  );
+
+  tool(
+    'cancel_dsar_case',
+    'Cancel a case before its executeAfter: work never sent is withdrawn, scheduled work is cancelled in each system, and every system\'s data stays intact. Refused once executeAfter has passed.',
+    { id: z.string() },
+    (a) => client.dsar.cancelCase(a.id as string),
+  );
+
+  tool(
+    'get_dsar_case_receipt',
+    'The signed receipt for a case: every system, its status and date, retention lines, the subject as hashes only. Ed25519, verifiable against GET /v1/partner/jwks.json. Read-only.',
+    { id: z.string() },
+    (a) => client.dsar.caseReceipt(a.id as string),
+  );
+
+  tool(
+    'find_dsar_by_trace',
+    'The rights request carrying one X-ForgeDeck-Trace id — to follow one event across products. Read-only.',
+    { trace: z.string() },
+    (a) => client.dsar.listByTrace(a.trace as string),
+  );
+
+  tool(
+    'get_dsar_settings',
+    'A site\'s rights-request settings: graceDays, how long an erasure or account closure waits before any system acts: 7 for a new site, 0 (opt-in) for one that existed before. Read-only.',
+    { cbid: z.string() },
+    (a) => client.dsarSettings.get(a.cbid as string),
+  );
+
+  tool(
+    'set_dsar_settings',
+    'Set a site\'s graceDays (0–30). Applies to cases opened afterwards. Audited.',
+    { cbid: z.string(), graceDays: z.number().int().min(0).max(30) },
+    (a) => client.dsarSettings.set(a.cbid as string, { graceDays: a.graceDays as number }),
+  );
+
+  tool(
+    'get_subject_card',
+    'Open rights requests for one person, as a support or CRM sidebar shows them — e.g. "erasure scheduled for 1 Nov: do not export this transcript". Name the person by iss and sub (preferred) or email. Read-only.',
+    {
+      app: z.string().describe('The sidebar app asking, as a slug, e.g. chatly.'),
+      iss: z.string().optional(),
+      sub: z.string().optional(),
+      email: z.string().optional(),
+    },
+    (a) =>
+      client.integrations.subjectCard(
+        a.app as string,
+        typeof a.iss === 'string' && typeof a.sub === 'string' ? { iss: a.iss, sub: a.sub } : { email: String(a.email ?? '') },
+      ),
   );
 
   tool(
@@ -463,7 +567,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'get_scan_status',
-    'Get a site’s last cookie scan: state (queued, scanning, done, failed), scanId, durationMs, cookieCount, pagesVisited and error when it failed.',
+    'Get a site’s last cookie scan: state (idle when never scanned, queued, scanning, done, failed), scanId, durationMs, cookieCount, pagesVisited and error when it failed.',
     { ...cbid, wait: z.number().min(0).max(60).optional().describe('Seconds (≤60) to wait for a running scan to settle before answering.') },
     (a) => (a.wait !== undefined ? client.sites.scanStatus(a.cbid as string, { wait: a.wait as number }) : client.sites.scanStatus(a.cbid as string)),
   );
@@ -491,6 +595,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool('get_usage', 'Get the current usage/quota summary for your organization.', {}, () => client.usage());
+
+  tool(
+    'get_entitlements',
+    'What your organization may use, from its plan: every feature (whiteLabel, tcf, sso, abTesting, …) as {key, enabled} and every limit as limits.<name> with limit (null = unlimited) and used. Read-only.',
+    {},
+    () => client.entitlements(),
+  );
 
   tool('list_webhooks', 'List webhook subscriptions for your organization.', {}, () => client.webhooks.list());
 
@@ -539,14 +650,22 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'replay_webhook',
+    'Send what a failing or disabled webhook endpoint missed: its held events since `since` (its failingSince), oldest first, one attempt each, stopping at the first failure. Re-enable the endpoint first (update_webhook active:true).',
+    { id: z.string(), since: z.union([z.number(), z.string()]).describe('Epoch ms or ISO date.'), limit: z.number().int().min(1).max(500).optional() },
+    (a) => client.webhooks.replay(a.id as string, a.since as number | string, a.limit ? { limit: a.limit as number } : undefined),
+  );
+
+  tool(
     'update_webhook',
-    'Change a webhook subscription, or pause it with active:false (delivery stops; the subscription is kept). Only the fields given change. cbid: null widens it to every property in the org.',
+    'Change a webhook subscription, or pause it with active:false (delivery stops; the subscription is kept). Only the fields given change. cbid: null widens it to every property in the org. active:true re-enables a disabled endpoint; the answer says how to replay what it missed. alertContacts: who is emailed when it fails (null: the org owners).',
     {
       id: z.string(),
       url: z.string().optional(),
       events: z.array(z.string()).optional(),
       cbid: z.string().nullable().optional(),
       active: z.boolean().optional(),
+      alertContacts: z.array(z.string()).nullable().optional(),
     },
     (a) =>
       client.webhooks.update(a.id as string, {
@@ -554,6 +673,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         ...(a.events !== undefined ? { events: a.events as string[] } : {}),
         ...(a.cbid !== undefined ? { cbid: a.cbid as string | null } : {}),
         ...(a.active !== undefined ? { active: a.active as boolean } : {}),
+        ...(a.alertContacts !== undefined ? { alertContacts: a.alertContacts as string[] | null } : {}),
       }),
   );
 
@@ -581,6 +701,25 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Extract theme colors and typography from a site\'s homepage to suggest a matching brand theme for the consent banner.',
     { ...cbid },
     (a) => client.sites.brand(a.cbid as string),
+  );
+
+  tool(
+    'get_site_brand',
+    'Read back the brand.json last imported for a site: each role (color.accent, font.body, logo.light, …), the theme token it sets, whether the value in force is brand.json\'s or the site\'s own (the site wins), variants that override it, plus ignored[] and warnings[] (e.g. a third-party font host).',
+    { cbid: z.string() },
+    (a) => client.sites.getBrand(a.cbid as string),
+  );
+
+  tool(
+    'import_site_brand',
+    'Import a DTCG brand.json into a site\'s banner theme (the hosted rights page uses it too). Pass url (https, fetched once) or document (the brand.json object). Values the site set itself are kept: brand.json < site banner theme < per-banner variant. dryRun answers the read-back and saves nothing.',
+    {
+      cbid: z.string(),
+      url: z.string().optional().describe('https URL of the brand.json. Give this or document.'),
+      document: z.record(z.unknown()).optional().describe('The brand.json object itself. Give this or url.'),
+      dryRun: z.boolean().optional(),
+    },
+    (a) => client.sites.setBrand(a.cbid as string, typeof a.url === 'string' ? { url: a.url } : ((a.document ?? {}) as Record<string, unknown>), { dryRun: a.dryRun === true }),
   );
 
   // ---------------------------------------------------------------------------
@@ -628,6 +767,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   registerPlatformTools(tool, client);
   registerIntegrationTools(tool, client);
+  registerKeyAndTagTools(tool, client);
   registerRightsTools(tool, client);
   registerRightsPageTools(tool, client);
 
@@ -740,16 +880,20 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'issue_api_key',
-    'Issue a new API key. The secret is returned once and never again. Prefer the least privilege the job needs: `scopes` limits what it can do, `cbids` locks it to specific sites (it then cannot reach anything org-wide), `expiresInDays` retires it. Omitting all three mints a full-access, org-wide, non-expiring key.',
+    'Issue a new API key. The secret is returned once and never again. Prefer the least privilege the job needs: `scopes` limits what it can do, `cbids` locks it to specific sites (it then cannot reach anything org-wide), `expiresInDays` retires it. Omitting all three mints a full-access, org-wide, non-expiring key (the answer warns about it). For a sub-task, vend_api_key mints a short-lived one instead.',
     {
       name: z.string().optional(),
       scopes: z.array(z.string()).optional(),
       cbids: z.array(z.string()).min(1).optional(),
       expiresInDays: z.number().int().min(1).max(3650).optional(),
       expiresAt: z.string().optional().describe('Or the exact expiry, an ISO date-time (not with expiresInDays).'),
+      owner: z.string().optional().describe('Who it belongs to: user:<id>, service:<name> or apikey:<prefix>. Default this key.'),
+      strictUnknownFields: z.boolean().optional().describe('Writes with the new key refuse unknown body fields by default.'),
     },
     (a) =>
       client.keys.issue({
+        ...(a.owner ? { owner: a.owner as string } : {}),
+        ...(a.strictUnknownFields !== undefined ? { strictUnknownFields: a.strictUnknownFields as boolean } : {}),
         ...(a.expiresAt ? { expiresAt: a.expiresAt as string } : {}),
         ...(a.name ? { name: a.name as string } : {}),
         ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
@@ -856,37 +1000,73 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'list_cookie_presets',
-    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referally): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
+    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
     { cbid: z.string() },
     (a) => client.sites.cookiePresets(a.cbid as string),
   );
 
   tool(
     'apply_cookie_preset',
-    'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId.',
+    'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId. A row filed under a disabled category comes back in warnings with a suggestedConfigPatch.',
     {
       cbid: z.string(),
-      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referally']),
+      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'referally']).describe('referally is the deprecated old name of referalli.'),
       frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
       crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
       publicId: z.string().optional().describe('Chatly: the channel public id (ch_web_…).'),
       dragging: z.boolean().optional().describe('Chatly: the launcher can be dragged (adds the drag-position key).'),
-      category: z.string().optional().describe('Chatly: the category for its keys (default necessary). Referally: default the site\'s referrals category, else marketing.'),
-      cookieDomain: z.string().optional().describe('Referally: the domain aff.js sets referally_ctx on, e.g. .example.com. Default the site domain.'),
-      cookieDays: z.number().int().min(1).max(400).optional().describe('Referally: how long the cookie lives, 1 to 400 days. Default 60.'),
+      category: z.string().optional().describe('Chatly: the category for its keys (default necessary). Referral and affiliate presets: default the site\'s referrals category, else marketing.'),
+      cookieDomain: z.string().optional().describe('Referral and affiliate presets: the domain their script sets its cookies on, e.g. .example.com. Default the site domain.'),
+      cookieDays: z.number().int().min(1).max(400).optional().describe('Referral and affiliate presets: your program\'s cookie window, 1 to 400 days.'),
+      legacyName: z.boolean().optional().describe('referalli: default true, also declare referally_ctx (the pre-rename copy aff.js still writes).'),
+      campaignId: z.string().optional().describe('impact: your program id; declares IR_<campaignId> too.'),
       dryRun: dryRunArg,
     },
     (a) => {
       const params: Record<string, unknown> = {};
-      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category', 'cookieDomain', 'cookieDays'] as const) if (a[k] !== undefined) params[k] = a[k];
+      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category', 'cookieDomain', 'cookieDays', 'legacyName', 'campaignId'] as const) if (a[k] !== undefined) params[k] = a[k];
       return client.sites.applyCookiePreset(a.cbid as string, a.vendor as 'atlas', params, a.dryRun ? { dryRun: true } : undefined);
     },
   );
 
   tool(
+    'import_cookie_manifest',
+    'Declare ANY vendor’s cookies and browser storage from its embed manifest (/.well-known/forgedeck-embed.json): give its https URL (re-read hourly afterwards) or the manifest document. The vendor id is the manifest’s product; rows are marked source "manifest". An invalid manifest is refused with each broken rule named. Use dryRun first; remove it with remove_cookie_preset and the product id.',
+    {
+      cbid: z.string(),
+      url: z.string().optional().describe('An https:// embed manifest URL.'),
+      manifest: z.record(z.unknown()).optional().describe('The manifest document itself, instead of a URL.'),
+      params: z.record(z.string()).optional().describe('Values for the manifest’s {placeholders}, e.g. {"publicId": "ch_web_1"}.'),
+      dryRun: dryRunArg,
+    },
+    (a) => {
+      const input = (a.url !== undefined ? { url: a.url as string } : { manifest: a.manifest as never }) as Parameters<typeof client.sites.importCookieManifest>[1];
+      return client.sites.importCookieManifest(a.cbid as string, { ...input, ...(a.params ? { params: a.params as Record<string, string> } : {}) }, a.dryRun ? { dryRun: true } : undefined);
+    },
+  );
+
+  tool(
+    'list_cookie_suggestions',
+    'What a site should declare: the vendors its crawls and visits show (by script URL, storage name or embed manifest), the preset for each, and one suggestion per undeclared cookie or storage key with a suggested category, confidence, and whether a crawl saw it before consent (consentStates). Read-only.',
+    { cbid: z.string() },
+    (a) => client.sites.cookieSuggestions(a.cbid as string),
+  );
+
+  tool(
+    'declare_cookie_suggestions',
+    'Declare a site’s suggestions in one call: applies detected vendors’ presets that need no parameters and declares every other suggestion that has a purpose. Run with dryRun first to see the diff. names limits it to those suggestions; presets: false declares rows one by one instead.',
+    { cbid: z.string(), names: z.array(z.string()).optional(), presets: z.boolean().optional(), dryRun: dryRunArg },
+    (a) => client.sites.declareCookieSuggestions(
+      a.cbid as string,
+      { ...(a.names ? { names: a.names as string[] } : {}), ...(a.presets !== undefined ? { presets: a.presets as boolean } : {}) },
+      a.dryRun ? { dryRun: true } : undefined,
+    ),
+  );
+
+  tool(
     'remove_cookie_preset',
-    'Remove every declaration a vendor preset made on this site.',
-    { cbid: z.string(), vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referally']), dryRun: dryRunArg },
+    'Remove every declaration a vendor preset made on this site: a first-class preset, or a custom one (import_cookie_manifest) by its product id.',
+    { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },
     (a) => client.sites.removeCookiePreset(a.cbid as string, a.vendor as 'atlas', a.dryRun ? { dryRun: true } : undefined),
   );
 
@@ -1186,8 +1366,29 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'get_audit_log',
     'The organisation’s audit log, newest first: administrative changes made in the dashboard or through the API, and who made them. Read-only.',
-    { limit: z.number().int().min(1).max(500).optional() },
-    (a) => client.audit(a.limit as number | undefined),
+    { limit: z.number().int().min(1).max(500).optional(), actor: z.string().optional().describe('"self" for this key’s own rows (allowed for scoped keys), or one actor id.') },
+    (a) => client.audit(a.limit as number | undefined, a.actor ? { actor: a.actor as string } : undefined),
+  );
+
+  tool(
+    'get_audit_sink',
+    'Where the organisation’s audit log is streamed (as CloudEvents) and how the last delivery went. Never the secret. Read-only.',
+    {},
+    () => client.auditSink.get(),
+  );
+
+  tool(
+    'set_audit_sink',
+    'Stream the organisation’s audit log to an HTTPS endpoint as CloudEvents 1.0, signed like webhooks. Replaces any sink. A generated secret is returned once. Audited.',
+    { type: z.literal('webhook'), url: z.string(), secret: z.string().optional().describe('16–256 characters; omitted: one is generated.') },
+    (a) => client.auditSink.set({ type: 'webhook', url: a.url as string, ...(a.secret ? { secret: a.secret as string } : {}) }),
+  );
+
+  tool(
+    'remove_audit_sink',
+    'Stop streaming the audit log. Audited.',
+    {},
+    () => client.auditSink.remove(),
   );
 
   tool(

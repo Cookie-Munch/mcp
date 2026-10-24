@@ -48,6 +48,8 @@ function mockClient(): CookieMunchClient {
       verify: vi.fn(async () => ({ verified: true, method: 'dns' })),
       previewToken: vi.fn(async () => ({ cbid: 'a', token: 't.s', expiresAt: 1, previewUrl: 'https://a.com/?cm_preview=t.s' })),
       brand: vi.fn(async () => ({ suggestion: { highlight: '#ff0000' } })),
+      getBrand: vi.fn(async () => ({ cbid: 'a', mapping: [] })),
+      setBrand: vi.fn(async () => ({ cbid: 'a', mapping: [] })),
       getFlow: vi.fn(async () => ({ v: 2, flow: { views: [] }, categories: {}, lint: [] })),
       editFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
       setFlow: vi.fn(async () => ({ ok: true, flow: { views: [] } })),
@@ -109,6 +111,7 @@ function mockClient(): CookieMunchClient {
       issue: vi.fn(async () => ({ id: 'k1', orgId: 'o1', prefix: 'fck_x', createdAt: 0, secret: 'fck_secret' })),
     },
     usage: vi.fn(async () => ({ orgId: 'o1', plan: 'free', period: { from: 0, to: 0 }, consents: 0, sites: 0 })),
+    entitlements: vi.fn(async () => ({ orgId: 'o1', plan: 'pro', entitlements: [] })),
     webhooks: {
       list: vi.fn(async () => []),
       create: vi.fn(async () => ({
@@ -191,15 +194,19 @@ const EXPECTED_TOOLS = [
   'get_dsr_sla',
   'plan_dsr_fulfillment',
   'list_dsar_executors',
+  'get_dsar_executor',
   'connect_dsar_executor',
   'disconnect_dsar_executor',
   'get_dsar_task_export',
   'get_dsar_task',
   'test_dsar_executor',
   'test_dsar_executor_webhook',
+  'get_category_registry',
   'list_dsar_executor_presets',
   'upgrade_dsar_executor_preset',
   'list_dsar_executor_webhook_deliveries',
+  'recheck_dsar_executor',
+  'list_dsar_executor_health_history',
   'get_dsr_fulfillment_status',
   'inspect_ai_prompt',
   'get_ai_inventory',
@@ -215,6 +222,7 @@ const EXPECTED_TOOLS = [
   'preview_site_config',
   'verify_consent_log',
   'get_consent_stats',
+  'get_consent_insights',
   'get_consent_log',
   'get_dsar',
   'update_dsar_executor',
@@ -222,6 +230,16 @@ const EXPECTED_TOOLS = [
   'create_dsar',
   'delete_test_dsar',
   'mark_dsar_test',
+  'open_dsar_case',
+  'get_dsar_case',
+  'cancel_dsar_case',
+  'get_dsar_case_receipt',
+  'find_dsar_by_trace',
+  'get_dsar_settings',
+  'set_dsar_settings',
+  'get_subject_card',
+  'run_executor_conformance',
+  'roll_executor_completion_secret',
   'advance_dsar',
   'export_consent',
   'get_receipt',
@@ -239,6 +257,7 @@ const EXPECTED_TOOLS = [
   'list_members',
   'list_api_keys',
   'get_usage',
+  'get_entitlements',
   'list_webhooks',
   'create_webhook',
   'delete_webhook',
@@ -250,9 +269,24 @@ const EXPECTED_TOOLS = [
   'update_site',
   'api_key_report',
   'integration_health',
+  'list_health_waivers',
+  'set_health_waiver',
+  'remove_health_waiver',
+  'get_embed_manifest',
   'provision_product',
   'list_site_partners',
   'link_site_partner',
+  // Key model, tags, partner links, forgedeck env (tools-keys-tags.ts).
+  'get_own_key',
+  'list_api_keys_standard',
+  'vend_api_key',
+  'revoke_leaked_key',
+  'get_resource_tags',
+  'update_resource_tags',
+  'list_partner_links',
+  'create_partner_link',
+  'revoke_partner_link',
+  'get_provision_env',
   'unlink_site_partner',
   'create_rights_link',
   'list_rights_page_domains',
@@ -261,6 +295,8 @@ const EXPECTED_TOOLS = [
   'remove_rights_page_domain',
   'verify_site',
   'match_site_brand',
+  'get_site_brand',
+  'import_site_brand',
   // Task 3: structured config tools
   'set_blocking',
   'set_geo_rules',
@@ -351,6 +387,9 @@ const EXPECTED_TOOLS = [
   'set_rights_identity_default',
   'remove_rights_identity_default',
   'get_audit_log',
+  'get_audit_sink',
+  'set_audit_sink',
+  'remove_audit_sink',
   'upload_asset',
   'delete_asset',
   'get_blocked_pages',
@@ -362,6 +401,9 @@ const EXPECTED_TOOLS = [
   'retire_cookie',
   'unretire_cookie',
   'list_cookie_presets',
+  'import_cookie_manifest',
+  'list_cookie_suggestions',
+  'declare_cookie_suggestions',
   'apply_cookie_preset',
   'remove_cookie_preset',
   'delete_observed_cookie',
@@ -370,6 +412,7 @@ const EXPECTED_TOOLS = [
   'test_webhook',
   'list_webhook_dead_letters',
   'replay_webhook_dead_letter',
+  'replay_webhook',
   'erase_dsar_subject',
   'export_dsar_subject',
   'get_preference',
@@ -792,6 +835,14 @@ describe('registerTools', () => {
     expect(client.usage).toHaveBeenCalledOnce();
   });
 
+  it('get_entitlements calls client.entitlements', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('get_entitlements').handler({});
+    expect(client.entitlements).toHaveBeenCalledOnce();
+  });
+
   it('returns an isError result when the client throws', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
@@ -854,6 +905,18 @@ describe('registerTools', () => {
     expect(res.isError).toBeFalsy();
     expect(client.rightsLinks.create).toHaveBeenCalledWith('a', { subject: { email: 'p@x.com', userId: 'u1' }, rights: ['access'] });
     expect(res.content[0]!.text).toContain('/r/a?t=');
+  });
+
+  it('get_site_brand / import_site_brand call sites.getBrand / sites.setBrand', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('get_site_brand').handler({ cbid: 'a' });
+    expect(client.sites.getBrand).toHaveBeenCalledWith('a');
+    await byName('import_site_brand').handler({ cbid: 'a', url: 'https://acme.com/brand.json' });
+    expect(client.sites.setBrand).toHaveBeenCalledWith('a', { url: 'https://acme.com/brand.json' }, { dryRun: false });
+    await byName('import_site_brand').handler({ cbid: 'a', document: { color: {} }, dryRun: true });
+    expect(client.sites.setBrand).toHaveBeenLastCalledWith('a', { color: {} }, { dryRun: true });
   });
 
   it('verify_site forwards cbid + method', async () => {
