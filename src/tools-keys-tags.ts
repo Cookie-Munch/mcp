@@ -19,6 +19,34 @@ export function registerKeyAndTagTools(tool: ToolRegistrar, client: CookieMunchC
   );
 
   tool(
+    'list_api_versions',
+    'The dated API versions, what each one changed, and the version the key this server runs with is pinned to (`yours`). Read-only.',
+    {},
+    () => client.versions(),
+  );
+
+  tool(
+    'set_own_api_version',
+    'Re-pin the key this server runs with to another dated API version (from list_api_versions). It changes how the API behaves for this key (for example strict request bodies from 2026-10-24), never what the key may do.',
+    { apiVersion: z.string().describe('A version from list_api_versions, e.g. 2026-10-24.') },
+    (a) => client.keys.updateSelf({ apiVersion: a.apiVersion as string }),
+  );
+
+  tool(
+    'get_sandbox',
+    'The organisation’s sandbox (a separate test organisation with the same people and plan features, never billed), or null. Read-only.',
+    {},
+    () => client.sandbox.get(),
+  );
+
+  tool(
+    'create_sandbox',
+    'Make a sandbox of the organisation, or return the one it has, with a new test-format key for it (shown once). Everything in a sandbox is test data: its keys are cookiemunch_test_ keys and every rights request filed there is a test. Needs a full-access key or orgs:create.',
+    { keyName: z.string().min(1).max(100).optional().describe('A name for the new key. Default "sandbox".') },
+    (a) => client.sandbox.create(a.keyName !== undefined ? { keyName: a.keyName as string } : {}),
+  );
+
+  tool(
     'list_api_keys_standard',
     'The organisation’s keys in the suite-standard shape (id, owner, kind, env, scopes, resources, created_at, expires_at, last_used_at, last_used_ip, status). Needs a full-access key. Read-only.',
     {},

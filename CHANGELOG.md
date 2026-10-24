@@ -2,6 +2,11 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.7.0 (2026-10-24)
+
+- Added: `get_sandbox`, `create_sandbox` (erasing a sandbox stays a person's `cookiemunch sandbox delete`), `list_api_versions`, `set_own_api_version`.
+- Changed: built on `@cookiemunch/sdk` 0.7.0.
+
 ## 0.6.0 (2026-10-24)
 
 - Added: `open_dsar_case`, `get_dsar_case`, `cancel_dsar_case`, `get_dsar_case_receipt`, `find_dsar_by_trace`, `get_dsar_settings`, `set_dsar_settings`, `get_subject_card`, `run_executor_conformance`, `roll_executor_completion_secret`. The grace period is opt-in for existing sites (they read `graceDays: 0` until set).

@@ -278,6 +278,10 @@ const EXPECTED_TOOLS = [
   'link_site_partner',
   // Key model, tags, partner links, forgedeck env (tools-keys-tags.ts).
   'get_own_key',
+  'list_api_versions',
+  'set_own_api_version',
+  'get_sandbox',
+  'create_sandbox',
   'list_api_keys_standard',
   'vend_api_key',
   'revoke_leaked_key',
