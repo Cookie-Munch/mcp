@@ -1031,7 +1031,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'import_cookie_manifest',
-    'Declare ANY vendor’s cookies and browser storage from its embed manifest (/.well-known/forgedeck-embed.json): give its https URL (re-read hourly afterwards) or the manifest document. The vendor id is the manifest’s product; rows are marked source "manifest". An invalid manifest is refused with each broken rule named. Use dryRun first; remove it with remove_cookie_preset and the product id.',
+    'Declare ANY vendor’s cookies and browser storage from its embed manifest (/.well-known/<product>-embed.json): give its https URL (re-read hourly afterwards) or the manifest document. The vendor id is the manifest’s product; rows are marked source "manifest". An invalid manifest is refused with each broken rule named. Use dryRun first; remove it with remove_cookie_preset and the product id.',
     {
       cbid: z.string(),
       url: z.string().optional().describe('An https:// embed manifest URL.'),

@@ -62,7 +62,7 @@ export function registerIntegrationTools(tool: ToolRegistrar, client: CookieMunc
 
   tool(
     'get_embed_manifest',
-    'A site’s embed manifest (the tenant variant of /.well-known/forgedeck-embed.json): every origin the Cookie Munch embed touches on that site, by CSP directive (non-origin sources such as \'unsafe-inline\' under requires), every cookie and browser-storage key it writes with category and lifetime, the checkers’ User-Agent, and the hosts of the site’s rights page and preference centre. Use it to build a Content-Security-Policy. Read-only.',
+    'A site’s embed manifest (the tenant variant of /.well-known/cookiemunch-embed.json): every origin the Cookie Munch embed touches on that site, by CSP directive (non-origin sources such as \'unsafe-inline\' under requires), every cookie and browser-storage key it writes with category and lifetime, the checkers’ User-Agent, and the hosts of the site’s rights page and preference centre. Use it to build a Content-Security-Policy. Read-only.',
     { cbid: z.string() },
     (a) => client.embedManifest(a.cbid as string),
   );

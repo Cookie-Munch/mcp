@@ -1,6 +1,6 @@
 {
   "name": "@cookiemunch/mcp",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Model Context Protocol server for the Cookie Munch Developer API",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cookiemunch/sdk": "^0.7.0",
+    "@cookiemunch/sdk": "^0.7.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.0"
   },
