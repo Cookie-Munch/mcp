@@ -2,8 +2,9 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
-## Unreleased
+## 0.8.0 (2026-10-30)
 
+- Added: `connect_dsar_executor` takes `mintFrom` and `externalId`; `secretKey` is optional. Built on `@cookiemunch/sdk` 0.8.0.
 - Added: `connect_identity_provider`: one-call connect for an identity provider's privacy orchestrator.
 
 ## 0.7.1 (2026-10-24)
