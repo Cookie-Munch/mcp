@@ -1034,8 +1034,11 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'referally']).describe('referally is the deprecated old name of referalli.'),
       frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
       crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
+      publishableKey: z.string().optional().describe('Atlas: your publishable key (pk_live_…). With frontendApiHost, the instance\'s declarations are read from Atlas\'s public GET https://<frontendApiHost>/v1/cookie_manifest when the site has no Atlas connection or its key cannot read them.'),
       publicId: z.string().optional().describe('Chatly: the channel public id (ch_web_…).'),
       dragging: z.boolean().optional().describe('Chatly: the launcher can be dragged (adds the drag-position key).'),
+      storage: z.union([z.enum(['allow', 'deny', 'on-open']), z.object({ functional: z.enum(['allow', 'deny', 'on-open']).optional(), analytics: z.enum(['allow', 'deny', 'on-open']).optional(), marketing: z.enum(['allow', 'deny', 'on-open']).optional() })]).optional().describe('Chatly: the widget\'s own storage option, as passed to Chatly.init; analytics "deny" leaves chatly:seen out, marketing "deny" chatly:utm.'),
+      tracking: z.union([z.boolean(), z.object({ visits: z.boolean().optional(), exitIntent: z.boolean().optional(), scrollDepth: z.boolean().optional() })]).optional().describe('Chatly: the widget\'s own tracking option; false, or visits false, leaves chatly:seen out.'),
       category: z.string().optional().describe('Chatly: the category for its keys (default necessary). Referral and affiliate presets: default the site\'s referrals category, else marketing.'),
       cookieDomain: z.string().optional().describe('Referral and affiliate presets: the domain their script sets its cookies on, e.g. .example.com. Default the site domain.'),
       cookieDays: z.number().int().min(1).max(400).optional().describe('Referral and affiliate presets: your program\'s cookie window, 1 to 400 days.'),
@@ -1045,7 +1048,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     },
     (a) => {
       const params: Record<string, unknown> = {};
-      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publicId', 'dragging', 'category', 'cookieDomain', 'cookieDays', 'legacyName', 'campaignId'] as const) if (a[k] !== undefined) params[k] = a[k];
+      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publishableKey', 'publicId', 'dragging', 'storage', 'tracking', 'category', 'cookieDomain', 'cookieDays', 'legacyName', 'campaignId'] as const) if (a[k] !== undefined) params[k] = a[k];
       return client.sites.applyCookiePreset(a.cbid as string, a.vendor as 'atlas', params, a.dryRun ? { dryRun: true } : undefined);
     },
   );
