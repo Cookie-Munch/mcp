@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## Unreleased
+
+- Added: `connect_identity_provider`: one-call connect for an identity provider's privacy orchestrator.
+
 ## 0.7.1 (2026-10-24)
 
 - Changed: tool descriptions name each vendor's own embed manifest (`/.well-known/<product>-embed.json`); built on `@cookiemunch/sdk` 0.7.1.

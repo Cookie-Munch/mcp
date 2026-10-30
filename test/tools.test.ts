@@ -238,6 +238,7 @@ const EXPECTED_TOOLS = [
   'get_dsar_settings',
   'set_dsar_settings',
   'get_subject_card',
+  'connect_identity_provider',
   'run_executor_conformance',
   'roll_executor_completion_secret',
   'advance_dsar',
@@ -276,7 +277,7 @@ const EXPECTED_TOOLS = [
   'provision_product',
   'list_site_partners',
   'link_site_partner',
-  // Key model, tags, partner links, forgedeck env (tools-keys-tags.ts).
+  // Key model, tags, partner links, provision env (tools-keys-tags.ts).
   'get_own_key',
   'list_api_versions',
   'set_own_api_version',

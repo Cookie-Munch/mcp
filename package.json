@@ -30,7 +30,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/emit-types.mjs",
     "test": "vitest run"
   },
   "dependencies": {

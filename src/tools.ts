@@ -372,13 +372,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         .object({ iss: z.string(), sub: z.string(), ext: z.string().optional(), principal: z.string().optional() })
         .optional()
         .describe('A signed-in identity from the site\'s sign-in issuer. People are never linked on email when it is present.'),
-      source: z.enum(['product', 'atlas', 'admin']).optional(),
+      source: z.enum(['product', 'identity', 'admin']).optional().describe('identity: the site\'s sign-in provider, whichever it is.'),
       reason: z.string().optional(),
       skipSystems: z.array(z.string()).optional().describe('System names, connection ids, or self.'),
       fulfill: z.boolean().optional(),
       test: z.boolean().optional(),
       idempotencyKey: z.string().optional(),
-      trace: z.string().optional().describe('An X-ForgeDeck-Trace to keep, from the caller.'),
+      trace: z.string().optional().describe('An X-Trace-Id to keep, from the caller.'),
     },
     (a) =>
       client.dsar.openCase(
@@ -386,7 +386,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
           cbid: a.cbid as string,
           type: a.type as never,
           subject: { emails: (a.emails as string[] | undefined) ?? [], ...(a.identity ? { identity: a.identity as never } : {}) },
-          ...(a.source ? { source: a.source as 'product' | 'atlas' | 'admin' } : {}),
+          ...(a.source ? { source: a.source as 'product' | 'identity' | 'admin' } : {}),
           ...(typeof a.reason === 'string' ? { reason: a.reason } : {}),
           ...(Array.isArray(a.skipSystems) ? { skipSystems: a.skipSystems as string[] } : {}),
           ...(typeof a.fulfill === 'boolean' ? { fulfill: a.fulfill } : {}),
@@ -422,7 +422,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'find_dsar_by_trace',
-    'The rights request carrying one X-ForgeDeck-Trace id — to follow one event across products. Read-only.',
+    'The rights request carrying one X-Trace-Id id — to follow one event across products. Read-only.',
     { trace: z.string() },
     (a) => client.dsar.listByTrace(a.trace as string),
   );
@@ -454,6 +454,27 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       client.integrations.subjectCard(
         a.app as string,
         typeof a.iss === 'string' && typeof a.sub === 'string' ? { iss: a.iss, sub: a.sub } : { email: String(a.email ?? '') },
+      ),
+  );
+
+  tool(
+    'connect_identity_provider',
+    'Connect an identity provider\'s privacy orchestrator in one call, so it opens a rights case here when a person deletes their account there. Mints a key holding only dsar:write, locked to the site (no keys:write needed), and hands it to the provider, authorised with the provider instance key. The minted key is never returned, only its prefix; connecting again replaces it. Built in: atlas. Any other provider: pass connector. Run with dryRun first: it mints and sends nothing.',
+    {
+      provider: z.string().describe('The provider id, e.g. atlas.'),
+      cbid: z.string().describe('The site the provider opens cases on.'),
+      providerKey: z.string().describe('The provider instance\'s secret key (Atlas: the instance secret key). Used for this one call, never stored.'),
+      connector: z
+        .object({ url: z.string(), method: z.enum(['PUT', 'POST']).optional(), body: z.record(z.unknown()) })
+        .optional()
+        .describe('Only for a provider with no built-in connector: its https orchestrator URL and JSON body; a body value "{apiKey}" becomes the minted key.'),
+      dryRun: z.boolean().optional().describe('Show the key and the request that would be made, minting and sending nothing.'),
+    },
+    (a) =>
+      client.integrations.connect(
+        a.provider as string,
+        { cbid: a.cbid as string, providerKey: a.providerKey as string, ...(a.connector ? { connector: a.connector as { url: string; method?: 'PUT' | 'POST'; body: Record<string, unknown> } } : {}) },
+        { dryRun: a.dryRun === true },
       ),
   );
 
@@ -922,7 +943,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   const declarationShape = {
-    category: z.string().describe('necessary, preferences, statistics, marketing, or one of the site’s categories.custom ids.'),
+    category: z.string().describe('necessary, preferences, statistics, marketing, or one of the site’s categories.suite or categories.custom ids.'),
     purpose: z.string().describe('What the cookie does, as visitors will read it — and the fallback for any language purposes lacks.'),
     purposes: z
       .record(z.string(), z.string().max(1000))

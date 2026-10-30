@@ -1,7 +1,7 @@
 /**
  * MCP tools for the key model and resource tags (CMU-D09, S02, X29, X31, X34, X35): the calling key itself,
  * vended short-lived keys, leak revocation, the standard key listing, tags on resources, suite-standard
- * partner links, and the forgedeck env of a provisioned product.
+ * partner links, and the env of a provisioned product.
  */
 
 import { z } from 'zod';
@@ -83,12 +83,12 @@ export function registerKeyAndTagTools(tool: ToolRegistrar, client: CookieMunchC
   const tagsSchema = z.object({
     type: z.enum(TAGGED),
     id: z.string(),
-    metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).describe('Keys to set; null removes one. forgedeck_sandbox cannot be set here.'),
+    metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).describe('Keys to set; null removes one. stack_sandbox cannot be set here.'),
     dryRun: z.boolean().optional().describe('Answer with the diff, storing nothing. Do this first.'),
   });
   tool(
     'update_resource_tags',
-    'Change a resource’s tags (merge). For adopting resources created before tags existed, e.g. forgedeck_product and forgedeck_env. A resource can never be made a sandbox after it was created.',
+    'Change a resource’s tags (merge). For adopting resources created before tags existed, e.g. stack_product and stack_env. A resource can never be made a sandbox after it was created.',
     tagsSchema.shape,
     (a) => {
       const { type, id, metadata, dryRun } = tagsSchema.parse(a);
@@ -127,7 +127,7 @@ export function registerKeyAndTagTools(tool: ToolRegistrar, client: CookieMunchC
 
   tool(
     'get_provision_env',
-    'What `forgedeck env` writes for a product provisioned with this forgedeck ref: variable names, non-secret values (cbid, script URL, API base) and references for secrets, never a secret. Read-only.',
+    'What `env` writes for a product provisioned with this stack ref: variable names, non-secret values (cbid, script URL, API base) and references for secrets, never a secret. Read-only.',
     { ref: z.string() },
     (a) => client.provisionEnv(a.ref as string),
   );

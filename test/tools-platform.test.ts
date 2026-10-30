@@ -188,4 +188,10 @@ describe('connected-system webhook and dry-run tools', () => {
     expect(calls[0]!.args[0]).not.toHaveProperty('dryRun');
     expect(calls[4]!.args).toEqual(['e1', { headers: { 'x-sig': 'v1,a' }, body: '{"a":1}' }]);
   });
+
+  it('passes mintFrom and externalId through in place of a secretKey (CMU-PM-05)', async () => {
+    const { tools, calls } = setup();
+    await tools.get('connect_dsar_executor')!.handler({ preset: 'chatly', mintFrom: 'chatly', externalId: 'ws_1', dryRun: true });
+    expect(calls[0]).toMatchObject({ method: 'f.dryRunConnect', args: [{ preset: 'chatly', mintFrom: 'chatly', externalId: 'ws_1' }] });
+  });
 });
