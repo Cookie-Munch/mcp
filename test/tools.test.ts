@@ -179,6 +179,7 @@ const EXPECTED_TOOLS = [
   'plan_warehouse_enforcement',
   'get_regulatory_feed',
   'get_upcoming_regulations',
+  'get_site_upcoming_regulations',
   'get_subscriptions',
   'set_subscription',
   'global_unsubscribe',
@@ -1292,6 +1293,21 @@ describe('structured config tools', () => {
     expect('preset' in banner).toBe(false);
   });
 
+  it('set_banner_basics: a sidebar layout drops the bar preset and merges the drawer settings', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    (client.sites.getConfig as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ...BASELINE_CONFIG,
+      banner: { ...BASELINE_CONFIG.banner, preset: 'bar', sidebar: { side: 'left', width: 360 } },
+    });
+    registerTools(server, client);
+    await byName('set_banner_basics').handler({ cbid: 'a', layout: 'sidebar', sidebar: { width: 420 } });
+    const banner = ((client.sites.putConfig as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>)['banner'] as Record<string, unknown>;
+    expect(banner['layout']).toBe('sidebar');
+    expect('preset' in banner).toBe(false);
+    expect(banner['sidebar']).toEqual({ side: 'left', width: 420 });
+  });
+
   it('set_banner_basics: theme record merged onto existing banner theme', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
@@ -1317,11 +1333,11 @@ describe('structured config tools', () => {
     expect(client.sites.putConfig).not.toHaveBeenCalled();
   });
 
-  it('set_banner_basics: invalid layout "sidebar" → isError, no PUT', async () => {
+  it('set_banner_basics: invalid layout "diagonal" → isError, no PUT', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
     registerTools(server, client);
-    const res = await byName('set_banner_basics').handler({ cbid: 'a', layout: 'sidebar' });
+    const res = await byName('set_banner_basics').handler({ cbid: 'a', layout: 'diagonal' });
     expect(res.isError).toBe(true);
     expect(client.sites.putConfig).not.toHaveBeenCalled();
   });

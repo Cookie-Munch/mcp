@@ -17,7 +17,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
   const blockingModeEnum = z.enum(['auto', 'manual'] as const);
   const bannerModeEnum = z.enum(['opt-in', 'opt-out', 'off'] as const);
   const bannerTypeEnum = z.enum(['multilevel', 'inline', 'accept-decline', 'accept-only', 'do-not-sell'] as const);
-  const bannerLayoutEnum = z.enum(['top', 'bottom', 'push-down', 'popup', 'overlay'] as const);
+  const bannerLayoutEnum = z.enum(['top', 'bottom', 'push-down', 'popup', 'overlay', 'sidebar'] as const);
   const consentModeModeEnum = z.enum(['basic', 'advanced'] as const);
 
   const geoRuleSchema = z.object({
@@ -215,12 +215,20 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
   const setBannerBasicsSchema = z.object({
     cbid: z.string().describe('Site identifier (cbid).'),
     type: bannerTypeEnum.optional().describe('Banner type. multilevel | inline | accept-decline | accept-only | do-not-sell.'),
-    layout: bannerLayoutEnum.optional().describe('Banner layout. top | bottom | push-down | popup | overlay.'),
+    layout: bannerLayoutEnum.optional().describe('Banner layout. top | bottom | push-down | popup | overlay | sidebar.'),
     preset: z
       .enum(['bar', 'box', 'full'] as const)
       .optional()
       .describe('Named shape that sets type/secondLayer (and layout for box): bar = slim one-row bar + categories in a modal; box = centred card + modal; full = every category in the first layer.'),
-    secondLayer: z.enum(['expand', 'popup', 'modal'] as const).optional().describe('Where the categories open from an inline banner.'),
+    secondLayer: z.enum(['expand', 'popup', 'modal', 'sidebar'] as const).optional().describe('Where the categories open from an inline banner.'),
+    sidebar: z
+      .object({
+        side: z.enum(['left', 'right'] as const).optional(),
+        width: z.number().min(280).max(640).optional(),
+        backdrop: z.boolean().optional(),
+      })
+      .optional()
+      .describe('The drawer of a sidebar layout or second layer: side (default right, mirrored for RTL), width in px 280–640 (default 400), backdrop (default true). Merged onto the stored value.'),
     density: z.enum(['comfortable', 'compact'] as const).optional().describe('compact = one-row bar from 760px wide.'),
     theme: z.record(z.unknown()).optional().describe('Partial ThemeTokens — deep-merged onto the existing banner theme. Includes `scrollbar`: { style: themed|thin|native|hidden, thumb?, thumbHover?, track?, width? 4–16, radius? 0–999 }.'),
     content: z.record(z.unknown()).optional().describe('Partial BannerContent — banner copy overrides (title, body, button labels, policyUrl, etc.).'),
@@ -231,7 +239,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     'Configure v1 banner appearance for a site: preset, type, layout, second layer, density, theme tokens, and copy (content.preferencesTitle titles the preferences dialog). Fetches the current config, patches only those banner fields, and PUTs. Setting type or secondLayer (or layout under the box preset) without a preset removes the stored preset, which would otherwise re-derive them.',
     setBannerBasicsSchema.shape,
     async (a) => {
-      const { cbid: siteId, type, layout, preset, secondLayer, density, theme, content } = setBannerBasicsSchema.parse(a);
+      const { cbid: siteId, type, layout, preset, secondLayer, sidebar, density, theme, content } = setBannerBasicsSchema.parse(a);
       const cfg = await client.sites.getConfig(siteId) as Record<string, unknown>;
       const existingBanner = (cfg['banner'] ?? {}) as Record<string, unknown>;
       const existingTheme = (existingBanner['theme'] ?? {}) as Record<string, unknown>;
@@ -241,13 +249,17 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
         ...(type !== undefined ? { type } : {}),
         ...(layout !== undefined ? { layout } : {}),
         ...(secondLayer !== undefined ? { secondLayer } : {}),
+        ...(sidebar !== undefined ? { sidebar: { ...(existingBanner['sidebar'] as Record<string, unknown> | undefined), ...sidebar } } : {}),
         ...(density !== undefined ? { density } : {}),
         ...(preset !== undefined ? { preset } : {}),
         ...(theme !== undefined ? { theme: { ...existingTheme, ...theme } } : {}),
         ...(content !== undefined ? { content: { ...existingContent, ...content } } : {}),
       };
-      // The preset owns type/secondLayer; a hand-set shape without a preset replaces it.
-      const owned = type !== undefined || secondLayer !== undefined || (layout !== undefined && banner['preset'] === 'box');
+      // The preset owns type/secondLayer, and the layout under box (and under bar, beyond a bar's
+      // own top / bottom / push-down); a hand-set shape without a preset replaces it.
+      const ownedLayout = layout !== undefined &&
+        (banner['preset'] === 'box' || (banner['preset'] === 'bar' && !['top', 'bottom', 'push-down'].includes(layout)));
+      const owned = type !== undefined || secondLayer !== undefined || ownedLayout;
       if (preset === undefined && owned) delete banner['preset'];
       return client.sites.putConfig(siteId, { ...cfg, banner });
     },

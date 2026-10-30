@@ -39,7 +39,7 @@ function fakeClient() {
     subscriptions: { topics: spy('subs.topics'), setTopics: spy('subs.setTopics'), get: spy('subs.get'), set: spy('subs.set'), unsubscribeAll: spy('subs.unsubscribeAll'), resubscribe: spy('x'), activation: spy('x') },
     assessments: { templates: spy('a.templates'), list: spy('x'), start: spy('a.start'), get: spy('a.get'), answer: spy('a.answer'), autoPopulateFromMap: spy('a.auto'), submit: spy('a.submit'), approve: spy('x'), reject: spy('x') },
     discovery: { ingestMap: spy('x'), getMap: spy('d.getMap'), ropaDrafts: spy('d.ropaDrafts'), evidence: spy('x'), drift: spy('d.drift'), planEnforcement: spy('d.planEnforcement') },
-    regulatory: { feed: spy('reg.feed'), upcoming: spy('reg.upcoming') },
+    regulatory: { feed: spy('reg.feed'), upcoming: spy('reg.upcoming'), upcomingForSite: spy('reg.forSite') },
     ai: { getPolicy: spy('x'), setPolicy: spy('x'), inspect: spy('ai.inspect'), inventory: spy('ai.inventory'), lineage: spy('ai.lineage'), registerSystem: spy('x'), audit: spy('x') },
     fulfillment: { sla: spy('f.sla'), plan: spy('f.plan'), status: spy('f.status'), pendingTasks: spy('x'), reportTask: spy('x'), connectExecutor: spy('f.connect'), dryRunConnectExecutor: spy('f.dryRunConnect'), updateExecutor: spy('f.update'), dryRunUpdateExecutor: spy('f.dryRunUpdate'), testExecutorWebhook: spy('f.testWebhook'), executorWebhookDeliveries: spy('f.deliveries') },
   } as unknown as CookieMunchClient;
@@ -160,6 +160,16 @@ describe('warehouse enforcement + regulatory tools', () => {
     registerTools(server, client as unknown as CookieMunchClient);
     await tools.get('get_upcoming_regulations')!.handler({ days: 90 });
     expect(calls.find((c) => c.method === 'reg.upcoming')?.args[0]).toBe(90);
+  });
+
+  it('reads a site’s upcoming regulations with a horizon and threshold', async () => {
+    const { server, tools } = fakeServer();
+    const { client, calls } = fakeClient();
+    registerTools(server, client as unknown as CookieMunchClient);
+    await tools.get('get_site_upcoming_regulations')!.handler({ cbid: 'cb1', days: 60, minShare: 0.05 });
+    expect(calls.find((c) => c.method === 'reg.forSite')?.args).toEqual(['cb1', { days: 60, minShare: 0.05 }]);
+    await tools.get('get_site_upcoming_regulations')!.handler({ cbid: 'cb2' });
+    expect(calls.filter((c) => c.method === 'reg.forSite')[1]?.args).toEqual(['cb2', {}]);
   });
 
   it('reads and replaces the subscription topic catalog', async () => {

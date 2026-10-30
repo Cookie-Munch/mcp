@@ -325,6 +325,23 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
     (a) => client.regulatory.upcoming(a.days as number | undefined),
   );
 
+  tool(
+    'get_site_upcoming_regulations',
+    'Privacy laws taking effect soon (default 90 days) where a site’s visitors are: those whose jurisdiction holds at least ' +
+      'minShare (default 0.01) of the site’s last 30 days of consent decisions. Each has daysUntil, trafficShare and, for a US ' +
+      'state law, what changes (GPC duty, sensitive-data opt-in, minors rule). A shipped dataset with a review date, not legal advice.',
+    {
+      cbid: z.string().describe('The site id.'),
+      days: z.number().int().positive().optional(),
+      minShare: z.number().min(0).max(1).optional(),
+    },
+    (a) =>
+      client.regulatory.upcomingForSite(a.cbid as string, {
+        ...(a.days !== undefined ? { days: a.days as number } : {}),
+        ...(a.minShare !== undefined ? { minShare: a.minShare as number } : {}),
+      }),
+  );
+
   // ---- DSR fulfillment ----
   tool(
     'get_dsr_sla',

@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.9.0 (2026-10-30)
+
+- Added: `get_site_upcoming_regulations`. Built on `@cookiemunch/sdk` 0.9.0.
+
 ## 0.8.0 (2026-10-30)
 
 - Added: `connect_dsar_executor` takes `mintFrom` and `externalId`; `secretKey` is optional. Built on `@cookiemunch/sdk` 0.8.0.
