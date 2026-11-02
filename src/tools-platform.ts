@@ -406,11 +406,17 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
         .record(z.unknown())
         .optional()
         .describe('How to drive that system: { open, poll, statuses } required, plus optional subjectLookup, auth, idempotencyHeader, grantRevoke and webhook. Omit it when using preset.'),
+      requireApproval: z.boolean().optional().describe('Park every erasure for this system (task status awaiting_approval) until a person approves it with approve_dsar_task. Default false.'),
       dryRun: z.boolean().optional().describe('Validate everything and answer the connection that would be created, storing nothing.'),
+      verify: z
+        .union([z.literal(true), z.literal('warn')])
+        .optional()
+        .describe('Probe it before storing (a canary locate, which only reads; no erasure is sent). true refuses a failing connection (422 verify_failed, nothing stored); warn stores it with the verdict in warnings.'),
     },
     (a) => {
-      const { dryRun, ...input } = a as Record<string, unknown>;
-      return dryRun === true ? client.fulfillment.dryRunConnectExecutor(input as never) : client.fulfillment.connectExecutor(input as never);
+      const { dryRun, verify, ...input } = a as Record<string, unknown>;
+      if (dryRun === true) return client.fulfillment.dryRunConnectExecutor(input as never);
+      return client.fulfillment.connectExecutor(input as never, verify === true || verify === 'warn' ? { verify } : undefined);
     },
   );
 
@@ -496,6 +502,20 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
     'One fulfilment task in detail: its status history, what it means for the person (exported, no record, done without an export…), every request Cookie Munch made to the connected system on its behalf with the answer it got (credentials removed, kept 30 days), and whether that system was redeployed mid-request. Read-only. Use it to explain why a system answered the way it did.',
     { requestId: z.string(), taskId: z.string() },
     (a) => client.fulfillment.task(a.requestId as string, a.taskId as string),
+  );
+
+  tool(
+    'approve_dsar_task',
+    'Approve an erasure waiting for a person (task status awaiting_approval, on a connection with requireApproval): it is sent to that system now, and the decision is written to the request\'s audit trail. Read the task first with get_dsar_task: its preview says what the system said the erasure would remove. This DELETES the person\'s data at that system; only do it when the operator has asked.',
+    { requestId: z.string(), taskId: z.string() },
+    (a) => client.fulfillment.approveTask(a.requestId as string, a.taskId as string),
+  );
+
+  tool(
+    'reject_dsar_task',
+    'Reject an erasure waiting for approval: nothing is sent, the task fails with the reason, and the request then needs a person (action_required). Audited.',
+    { requestId: z.string(), taskId: z.string(), reason: z.string().max(500).optional() },
+    (a) => client.fulfillment.rejectTask(a.requestId as string, a.taskId as string, a.reason !== undefined ? { reason: a.reason as string } : {}),
   );
 
   tool(

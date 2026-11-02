@@ -261,7 +261,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
   tool(
     'update_dsar_executor',
-    'Change a connected system in place — its profile, address, credential, label (null removes it), auto flag or presetPinned (true stops preset upgrades). Only what you pass changes; the stored credential is kept unless you give a new one. A profile edit on a preset-built connection is recorded in profileOverrides, so an upgrade keeps it. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
+    'Change a connected system in place — its profile, address, credential, label (null removes it), auto flag, requireApproval (true parks its erasures until approve_dsar_task) or presetPinned (true stops preset upgrades). Only what you pass changes; the stored credential is kept unless you give a new one. A profile edit on a preset-built connection is recorded in profileOverrides, so an upgrade keeps it. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
     {
       id: z.string(),
       patch: z.record(z.unknown()),
@@ -425,6 +425,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'The rights request carrying one X-Trace-Id id — to follow one event across products. Read-only.',
     { trace: z.string() },
     (a) => client.dsar.listByTrace(a.trace as string),
+  );
+
+  tool(
+    'list_dsar_by_origin',
+    'The rights requests with one origin: account_deletion lists those a person\'s own account deletion opened (a closure filed by a product or identity platform). Read-only.',
+    { origin: z.enum(['account_deletion']) },
+    (a) => client.dsar.listByOrigin(a.origin as 'account_deletion'),
   );
 
   tool(
@@ -628,25 +635,27 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'create_webhook',
-    'Create a webhook subscription. The response includes the signing secret (shown once).',
+    'Create a webhook subscription. A generated signing secret is in the response (shown once); a secret you pass is not echoed back. The answer\'s matches lists the events the patterns take today.',
     {
       url: z.string().describe('HTTPS endpoint to deliver events to.'),
-      events: z.array(z.string()).describe('Event names to subscribe to, e.g. consent.created.'),
+      events: z.array(z.string()).describe('Event names (consent.recorded), "*" for every event (full-access key only), or "<family>.*" such as dsar.*. A wildcard also takes events added later.'),
       cbid: z.string().optional().describe('Optional site cbid to scope the subscription to.'),
+      secret: z.string().min(32).max(256).optional().describe('Your own signing secret: 32–256 printable characters, no spaces. Omit it to have one generated.'),
     },
     (a) =>
       client.webhooks.create({
         url: a.url as string,
         events: a.events as string[],
         ...(typeof a.cbid === 'string' ? { cbid: a.cbid } : {}),
+        ...(typeof a.secret === 'string' ? { secret: a.secret } : {}),
       }),
   );
 
   tool(
     'roll_webhook_secret',
-    'Rotate a webhook subscription’s signing secret. The new secret is returned once; the receiving endpoint must be updated to verify with it.',
-    { id: z.string() },
-    (a) => client.webhooks.rollSecret(a.id as string),
+    'Rotate a webhook subscription’s signing secret. A generated secret is returned once; one you pass is not echoed (rolled: true). The receiving endpoint must be updated to verify with it.',
+    { id: z.string(), secret: z.string().min(32).max(256).optional().describe('Your own new secret: 32–256 printable characters, no spaces.') },
+    (a) => client.webhooks.rollSecret(a.id as string, typeof a.secret === 'string' ? { secret: a.secret } : undefined),
   );
 
   tool(
@@ -683,7 +692,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     {
       id: z.string(),
       url: z.string().optional(),
-      events: z.array(z.string()).optional(),
+      events: z.array(z.string()).optional().describe('Event names, "*" or "<family>.*", as on create.'),
       cbid: z.string().nullable().optional(),
       active: z.boolean().optional(),
       alertContacts: z.array(z.string()).nullable().optional(),

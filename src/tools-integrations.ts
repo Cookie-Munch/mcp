@@ -13,6 +13,7 @@ export function registerIntegrationTools(tool: ToolRegistrar, client: CookieMunc
     domain: z.string().optional().describe('New domain, a bare hostname. A move clears verification: verify the new domain afterwards.'),
     name: z.string().nullable().optional().describe('Display name data subjects see on the rights page and in notices; null clears it.'),
     aliases: z.array(z.string()).optional().describe('Other hosts serving the site (replaces the list; [] clears it). Accepted consent origins, never verified claims.'),
+    keepOldDomain: z.boolean().optional().describe('With a new domain: keep the old one as an alias, so consent is still accepted there while both run. Remove it from aliases when the move is done.'),
     dryRun: z.boolean().optional().describe('Answer with the diff and its effects, storing nothing.'),
   });
   tool(

@@ -2,6 +2,13 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.10.0 (2026-11-01)
+
+- Added: `approve_dsar_task`, `reject_dsar_task`, `list_dsar_by_origin`; `verify` and `requireApproval` on `connect_dsar_executor`; `keepOldDomain` on `update_site`. Built on `@cookiemunch/sdk` 0.10.0.
+
+- Added: `secret` on `create_webhook` and `roll_webhook_secret`; webhook `events` take `*` and `<family>.*`.
+- Added: `acknowledgedGaps` on `set_languages`: silence the save warnings about untranslated copy.
+
 ## 0.9.1 (2026-10-30)
 
 - Added: `publishableKey`, `storage` and `tracking` on the cookie preset tool. Built on `@cookiemunch/sdk` 0.9.1.
