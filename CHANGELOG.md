@@ -2,6 +2,11 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.12.0 (2026-11-02)
+
+- Added: `get_cookie_translation`, `connect_cookie_translation`, `disconnect_cookie_translation`, `translate_cookies` (dry run unless `dryRun: false`).
+- Added: `set_dsar_settings` takes `processing` and `acceptForwardsFrom` (`graceDays` is optional); `create_dsar` and `open_dsar_case` take `controller`.
+
 ## 0.11.0 (2026-11-02)
 
 - Added: `list_anchors` and `get_anchor` (read only: an anchor is permanent, so no tool posts one).

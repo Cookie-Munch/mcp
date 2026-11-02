@@ -299,7 +299,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'create_dsar',
-    'Open a new Data Subject Access Request.',
+    'Open a new Data Subject Access Request. With dryRun, file nothing and contact no connected system: answers which connections it would reach once verified (plan) and which it would skip, and why.',
     {
       type: z.enum(['access', 'deletion', 'rectification', 'portability', 'opt-out']).describe('DSAR right being exercised.'),
       subjectEmail: z.string().describe('The data subject’s email.'),
@@ -310,16 +310,23 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         .boolean()
         .optional()
         .describe('Mark it as a test request: kept off the SLA board and deletable afterwards with delete_test_dsar.'),
+      cbid: z.string().optional().describe('The property it belongs to; a connection scoped to a property is reached only by its requests.'),
+      controller: z.string().optional().describe('On a processor site: the id of the business (controller) it concerns. Optional when the site lists one.'),
+      dryRun: z.boolean().optional().describe('Answer with the plan, filing nothing.'),
     },
-    (a) =>
-      client.dsar.create({
+    (a) => {
+      const input = {
         type: a.type as never,
         subjectEmail: a.subjectEmail as string,
         regulation: a.regulation as never,
         ...(typeof a.note === 'string' ? { note: a.note } : {}),
         ...(typeof a.messageToSubject === 'string' ? { messageToSubject: a.messageToSubject } : {}),
         ...(a.test === true ? { test: true } : {}),
-      }),
+        ...(typeof a.cbid === 'string' ? { cbid: a.cbid } : {}),
+        ...(typeof a.controller === 'string' ? { controller: a.controller } : {}),
+      };
+      return a.dryRun === true ? client.dsar.create(input, { dryRun: true }) : client.dsar.create(input);
+    },
   );
 
   tool(
@@ -379,6 +386,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       test: z.boolean().optional(),
       idempotencyKey: z.string().optional(),
       trace: z.string().optional().describe('An X-Trace-Id to keep, from the caller.'),
+      controller: z.string().optional().describe('On a processor site: the id of the controller the case concerns. It is then passed to that controller instead of your systems.'),
     },
     (a) =>
       client.dsar.openCase(
@@ -391,6 +399,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
           ...(Array.isArray(a.skipSystems) ? { skipSystems: a.skipSystems as string[] } : {}),
           ...(typeof a.fulfill === 'boolean' ? { fulfill: a.fulfill } : {}),
           ...(a.test === true ? { test: true } : {}),
+          ...(typeof a.controller === 'string' ? { controller: a.controller } : {}),
         },
         {
           ...(typeof a.idempotencyKey === 'string' ? { idempotencyKey: a.idempotencyKey } : {}),
@@ -429,23 +438,54 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'list_dsar_by_origin',
-    'The rights requests with one origin: account_deletion lists those a person\'s own account deletion opened (a closure filed by a product or identity platform). Read-only.',
-    { origin: z.enum(['account_deletion']) },
-    (a) => client.dsar.listByOrigin(a.origin as 'account_deletion'),
+    'The rights requests with one origin: account_deletion lists those a person\'s own account deletion opened (a closure filed by a product or identity platform); processor_forward those a processor passed on to you. Read-only.',
+    { origin: z.enum(['account_deletion', 'processor_forward']) },
+    (a) => client.dsar.listByOrigin(a.origin as 'account_deletion' | 'processor_forward'),
   );
 
   tool(
     'get_dsar_settings',
-    'A site\'s rights-request settings: graceDays, how long an erasure or account closure waits before any system acts: 7 for a new site, 0 (opt-in) for one that existed before. Read-only.',
+    'A site\'s rights-request settings: graceDays, how long an erasure or account closure waits before any system acts: 7 for a new site, 0 (opt-in) for one that existed before; processing, when the site is a processor, with the controllers its requests go to; acceptForwardsFrom, the processors that may open cases here. Read-only.',
     { cbid: z.string() },
     (a) => client.dsarSettings.get(a.cbid as string),
   );
 
   tool(
     'set_dsar_settings',
-    'Set a site\'s graceDays (0–30). Applies to cases opened afterwards. Audited.',
-    { cbid: z.string(), graceDays: z.number().int().min(0).max(30) },
-    (a) => client.dsarSettings.set(a.cbid as string, { graceDays: a.graceDays as number }),
+    'Set a site\'s rights-request settings; only the fields given change. graceDays (0–30) applies to cases opened afterwards. processing makes the site a processor: each controller { id, name, contactUrl?, contactEmail?, forward } where forward is { kind: "cookiemunch", cbid } (that site must accept you), { kind: "webhook", url, secret? } (signed POST) or { kind: "refer" } (the person is told whom to contact); null clears it. acceptForwardsFrom lists the processors (org ids or cbids) that may open cases on this site; null clears it. Audited.',
+    {
+      cbid: z.string(),
+      graceDays: z.number().int().min(0).max(30).optional(),
+      processing: z
+        .object({
+          role: z.literal('processor'),
+          controllers: z
+            .array(
+              z.object({
+                id: z.string(),
+                name: z.string(),
+                contactUrl: z.string().optional(),
+                contactEmail: z.string().optional(),
+                forward: z.union([
+                  z.object({ kind: z.literal('cookiemunch'), cbid: z.string() }),
+                  z.object({ kind: z.literal('webhook'), url: z.string(), secret: z.string().optional() }),
+                  z.object({ kind: z.literal('refer') }),
+                ]),
+              }),
+            )
+            .min(1)
+            .max(50),
+        })
+        .nullable()
+        .optional(),
+      acceptForwardsFrom: z.array(z.string()).max(50).nullable().optional(),
+    },
+    (a) =>
+      client.dsarSettings.set(a.cbid as string, {
+        ...(typeof a.graceDays === 'number' ? { graceDays: a.graceDays } : {}),
+        ...(a.processing !== undefined ? { processing: a.processing as never } : {}),
+        ...(a.acceptForwardsFrom !== undefined ? { acceptForwardsFrom: a.acceptForwardsFrom as string[] | null } : {}),
+      }),
   );
 
   tool(
@@ -1093,6 +1133,39 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       a.cbid as string,
       { ...(a.names ? { names: a.names as string[] } : {}), ...(a.presets !== undefined ? { presets: a.presets as boolean } : {}) },
       a.dryRun ? { dryRun: true } : undefined,
+    ),
+  );
+
+  // ---- machine translation of a site's own cookie purposes, on the site's OWN DeepL/Google key ----
+  tool(
+    'get_cookie_translation',
+    'The site’s own translation account (DeepL or Google) used to machine-translate its cookie purposes: provider, the key’s last four characters and fingerprint, when it was connected. Never the key. Read-only.',
+    { cbid: z.string() },
+    (a) => client.sites.translation(a.cbid as string),
+  );
+
+  tool(
+    'connect_cookie_translation',
+    'Connect the site’s own DeepL or Google Cloud Translation API key (stored sealed, never returned). Text is then translated on the customer’s own account, under their terms with the provider. verify checks the key first with a call that sends no text.',
+    { cbid: z.string(), provider: z.enum(['deepl', 'google']), key: z.string().min(8).max(512).describe('The provider API key. Write-only.'), verify: z.boolean().optional() },
+    (a) => client.sites.connectTranslation(a.cbid as string, { provider: a.provider as 'deepl', key: a.key as string }, a.verify ? { verify: true } : undefined),
+  );
+
+  tool(
+    'disconnect_cookie_translation',
+    'Remove the site’s translation key. Translations already stored stay.',
+    { cbid: z.string() },
+    (a) => client.sites.disconnectTranslation(a.cbid as string),
+  );
+
+  tool(
+    'translate_cookies',
+    'Machine-translate the missing purposes of the site’s own cookie declarations into its served languages (or `languages`, any of the 40 banner languages) on its connected account. Never overwrites text a row has; filled entries are marked in machinePurposes. dryRun (the default here) lists every change and the characters it would send, and calls no provider; pass dryRun: false to translate (it costs the customer provider credits).',
+    { cbid: z.string(), languages: z.array(z.string()).optional(), names: z.array(z.string()).optional(), dryRun: z.boolean().default(true) },
+    (a) => client.sites.translateCookies(
+      a.cbid as string,
+      { ...(a.languages ? { languages: a.languages as string[] } : {}), ...(a.names ? { names: a.names as string[] } : {}) },
+      a.dryRun === false ? undefined : { dryRun: true },
     ),
   );
 
