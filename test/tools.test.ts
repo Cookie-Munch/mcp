@@ -229,6 +229,7 @@ const EXPECTED_TOOLS = [
   'get_consent_log',
   'get_dsar',
   'update_dsar_executor',
+  'upsert_dsar_executor',
   'list_dsar',
   'create_dsar',
   'delete_test_dsar',

@@ -273,6 +273,12 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         : client.fulfillment.updateExecutor(a.id as string, a.patch as Record<string, unknown>),
   );
   tool(
+    'upsert_dsar_executor',
+    'Create or update the connected system for a `system` (or a preset\'s default system) from the same body as a create. Re-running it changes nothing; the same secretKey is not a rotation. A changed create-only field (system, preset, presetVersion, preset params, mintFrom, externalId) answers 409 immutable_field naming every such field. The answer carries upserted: created or updated.',
+    { body: z.record(z.unknown()).describe('The create body: { system, baseUrl, secretKey, profile, … } or { preset, …params, secretKey | mintFrom }.') },
+    (a) => client.fulfillment.upsertExecutor(a.body as Record<string, unknown>),
+  );
+  tool(
     'get_dsar',
     'One rights request by id, including its status and the deadline it must be answered by.',
     { id: z.string() },
