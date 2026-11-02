@@ -1037,6 +1037,21 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'plan_cookies',
+    'Plan a provisioning run, storing nothing: the declarations write (cookies, replace) and then each vendor preset in presets, in key order, applied one after another to one scratch copy, so a preset after a replace sees the rows the replace removed. Answers each step\'s own dry run with its diff, the would-be list and count, and the combined diff: exactly what the real calls in that order produce.',
+    {
+      cbid: z.string(),
+      cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500).optional(),
+      replace: z.boolean().optional(),
+      presets: z.record(z.string(), z.record(z.string(), z.unknown())).optional().describe('Vendor → its preset params, as apply_cookie_preset takes them; applied in this order.'),
+    },
+    (a) => {
+      const { cbid, ...input } = a as { cbid: string } & Record<string, unknown>;
+      return client.sites.planCookies(cbid, input as never);
+    },
+  );
+
+  tool(
     'undeclare_cookie',
     'Remove a cookie declaration; the scanned/observed classification applies again.',
     { cbid: z.string(), name: z.string(), dryRun: dryRunArg },
