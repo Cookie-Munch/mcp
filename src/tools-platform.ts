@@ -409,14 +409,14 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
       requireApproval: z.boolean().optional().describe('Park every erasure for this system (task status awaiting_approval) until a person approves it with approve_dsar_task. Default false.'),
       dryRun: z.boolean().optional().describe('Validate everything and answer the connection that would be created, storing nothing.'),
       verify: z
-        .union([z.literal(true), z.literal('warn')])
+        .union([z.literal(true), z.literal('warn'), z.literal('defer')])
         .optional()
-        .describe('Probe it before storing (a canary locate, which only reads; no erasure is sent). true refuses a failing connection (422 verify_failed, nothing stored); warn stores it with the verdict in warnings.'),
+        .describe('Probe it before storing (a canary locate, which only reads; no erasure is sent). true refuses a failing connection (422 verify_failed, nothing stored); warn stores it with the verdict in warnings; defer (its API is not deployed yet) probes nothing and stores it awaiting_first_probe — not planned or alerted on until a probe passes.'),
     },
     (a) => {
       const { dryRun, verify, ...input } = a as Record<string, unknown>;
       if (dryRun === true) return client.fulfillment.dryRunConnectExecutor(input as never);
-      return client.fulfillment.connectExecutor(input as never, verify === true || verify === 'warn' ? { verify } : undefined);
+      return client.fulfillment.connectExecutor(input as never, verify !== undefined ? { verify: verify as true | 'warn' | 'defer' } : undefined);
     },
   );
 

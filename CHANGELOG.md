@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.13.1 (2026-11-02)
+
+- Added: `verify: "defer"` on connecting a system: stored, never planned or alerted on until its first passing probe.
+
 ## 0.13.0 (2026-11-02)
 
 - Added: `upsert_dsar_executor`: create or update a connected system from the create body; re-running it changes nothing.
