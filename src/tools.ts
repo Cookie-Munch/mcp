@@ -982,7 +982,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'declare_cookies',
-    'Declare many cookies at once. All-or-nothing: one invalid item refuses the whole request and nothing is saved. replace: true also removes every declaration the list does not name.',
+    'Declare many cookies at once. All-or-nothing: one invalid item refuses the whole request and nothing is saved. replace: true also removes every declaration of your own the list does not name; vendor-preset rows stay.',
     { cbid: z.string(), cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500), replace: z.boolean().optional(), dryRun: dryRunArg },
     (a) => {
       const o = { ...(a.replace ? { replace: true } : {}), ...(a.dryRun ? { dryRun: true } : {}) };

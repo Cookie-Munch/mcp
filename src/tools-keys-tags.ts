@@ -33,6 +33,24 @@ export function registerKeyAndTagTools(tool: ToolRegistrar, client: CookieMunchC
   );
 
   tool(
+    'list_anchors',
+    'Signed audit-anchor receipts for one of the organisation\u2019s own hash-chained logs, newest (highest seq) first: each says the log\u2019s head at a seq no later than receivedAt, signed with the key in /v1/partner/jwks.json. Pass nextBefore as before for the next page. Needs anchors:read. Read-only.',
+    {
+      stream: z.string().regex(/^[A-Za-z0-9_.:-]{1,100}$/).describe('The stream name, e.g. "audit:main".'),
+      limit: z.number().int().min(1).max(500).optional().describe('Receipts per page (default 100).'),
+      before: z.number().int().min(0).optional().describe('Only receipts with a lower seq (the previous page\u2019s nextBefore).'),
+    },
+    (a) => client.anchors.list(a.stream as string, { ...(a.limit !== undefined ? { limit: a.limit as number } : {}), ...(a.before !== undefined ? { before: a.before as number } : {}) }),
+  );
+
+  tool(
+    'get_anchor',
+    'One signed audit-anchor receipt by stream and id (anc_…). Needs anchors:read. Read-only.',
+    { stream: z.string().regex(/^[A-Za-z0-9_.:-]{1,100}$/), id: z.string().min(1) },
+    (a) => client.anchors.get(a.stream as string, a.id as string),
+  );
+
+  tool(
     'get_sandbox',
     'The organisation’s sandbox (a separate test organisation with the same people and plan features, never billed), or null. Read-only.',
     {},

@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.11.0 (2026-11-02)
+
+- Added: `list_anchors` and `get_anchor` (read only: an anchor is permanent, so no tool posts one).
+
 ## 0.10.0 (2026-11-01)
 
 - Added: `approve_dsar_task`, `reject_dsar_task`, `list_dsar_by_origin`; `verify` and `requireApproval` on `connect_dsar_executor`; `keepOldDomain` on `update_site`. Built on `@cookiemunch/sdk` 0.10.0.

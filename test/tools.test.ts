@@ -285,6 +285,8 @@ const EXPECTED_TOOLS = [
   'get_own_key',
   'list_api_versions',
   'set_own_api_version',
+  'list_anchors',
+  'get_anchor',
   'get_sandbox',
   'create_sandbox',
   'list_api_keys_standard',
