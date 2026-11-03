@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.15.0 (2026-11-03)
+
+- Added: `fragment`, `format` and `lang` on `get_privacy_policy`; the new executor fields (`lastConformance`, preset `family`) and the Atlas `executor: true` connect.
+
 ## 0.14.0 (2026-11-02)
 
 - Added: `plan_cookies`: the combined dry run of a declarations write and presets, in order.

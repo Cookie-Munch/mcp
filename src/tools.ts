@@ -103,12 +103,20 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'get_privacy_policy',
     "Generate the site's privacy and cookie policy as Markdown, naming the org's data controller. Needs a contact email: the one given, else the org controller's, else the owner's. Read-only — nothing is published.",
-    { cbid: z.string(), contactEmail: z.string().optional(), effectiveDate: z.string().optional().describe('YYYY-MM-DD; defaults to today.'), jurisdictions: z.array(z.string()).optional() },
+    {
+      cbid: z.string(), contactEmail: z.string().optional(), effectiveDate: z.string().optional().describe('YYYY-MM-DD; defaults to today.'), jurisdictions: z.array(z.string()).optional(),
+      fragment: z.enum(['cookies']).optional().describe('cookies: only the cookie table section (needs no contact email).'),
+      format: z.enum(['markdown', 'html']).optional().describe('With fragment=cookies: markdown (default) or escaped HTML tables.'),
+      lang: z.string().optional().describe('The language of the text; English (en) only.'),
+    },
     (a) =>
       client.sites.policy(a.cbid as string, {
         ...(a.contactEmail ? { contactEmail: a.contactEmail as string } : {}),
         ...(a.effectiveDate ? { effectiveDate: a.effectiveDate as string } : {}),
         ...(a.jurisdictions ? { jurisdictions: a.jurisdictions as string[] } : {}),
+        ...(a.fragment ? { fragment: a.fragment as 'cookies' } : {}),
+        ...(a.format ? { format: a.format as 'markdown' | 'html' } : {}),
+        ...(a.lang ? { lang: a.lang as string } : {}),
       }),
   );
 
@@ -261,7 +269,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool('list_dsar', 'List all Data Subject Access Requests for your organization.', {}, () => client.dsar.list());
   tool(
     'update_dsar_executor',
-    'Change a connected system in place — its profile, address, credential, label (null removes it), auto flag, requireApproval (true parks its erasures until approve_dsar_task) or presetPinned (true stops preset upgrades). Only what you pass changes; the stored credential is kept unless you give a new one. A profile edit on a preset-built connection is recorded in profileOverrides, so an upgrade keeps it. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
+    'Change a connected system in place — its profile, address, credential, label (null removes it), auto flag, requireApproval (true parks its erasures until approve_dsar_task) presetPinned (true stops preset upgrades) or preset (another preset of the same family, cm-standard-v1 → cm-standard-v2, moves it in place keeping id, credentials and history). Only what you pass changes; the stored credential is kept unless you give a new one. A profile edit on a preset-built connection is recorded in profileOverrides, so an upgrade keeps it. With dryRun, answers the connection as it would be and a diff, and changes nothing.',
     {
       id: z.string(),
       patch: z.record(z.unknown()),
@@ -521,12 +529,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
         .object({ url: z.string(), method: z.enum(['PUT', 'POST']).optional(), body: z.record(z.unknown()) })
         .optional()
         .describe('Only for a provider with no built-in connector: its https orchestrator URL and JSON body; a body value "{apiKey}" becomes the minted key.'),
+      executor: z.boolean().optional().describe('Atlas only: also create or update the atlas connected system, holding the narrow key Atlas mints and the signing secret of the completion webhook Atlas points at its webhookUrl. Needs a key not locked to properties.'),
       dryRun: z.boolean().optional().describe('Show the key and the request that would be made, minting and sending nothing.'),
     },
     (a) =>
       client.integrations.connect(
         a.provider as string,
-        { cbid: a.cbid as string, providerKey: a.providerKey as string, ...(a.connector ? { connector: a.connector as { url: string; method?: 'PUT' | 'POST'; body: Record<string, unknown> } } : {}) },
+        { cbid: a.cbid as string, providerKey: a.providerKey as string, ...(a.connector ? { connector: a.connector as { url: string; method?: 'PUT' | 'POST'; body: Record<string, unknown> } } : {}), ...(typeof a.executor === 'boolean' ? { executor: a.executor } : {}) },
         { dryRun: a.dryRun === true },
       ),
   );
