@@ -520,22 +520,23 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'connect_identity_provider',
-    'Connect an identity provider\'s privacy orchestrator in one call, so it opens a rights case here when a person deletes their account there. Mints a key holding only dsar:write, locked to the site (no keys:write needed), and hands it to the provider, authorised with the provider instance key. The minted key is never returned, only its prefix; connecting again replaces it. Built in: atlas. Any other provider: pass connector. Run with dryRun first: it mints and sends nothing.',
+    'Connect an identity provider\'s privacy orchestrator in one call, so it opens a rights case here when a person deletes their account there. Mints a key holding only dsar:write, locked to the site (no keys:write needed), and hands it to the provider, authorised with the provider instance key. The minted key is never returned, only its prefix; connecting again replaces it. Built in: atlas, and forumulate (pass orgId; no key is minted: Cookie Munch makes Forumulate\'s consent call itself with providerKey, a Forumulate org token, and answers the steps run). Any other provider: pass connector. Run with dryRun first: it mints and sends nothing.',
     {
-      provider: z.string().describe('The provider id, e.g. atlas.'),
+      provider: z.string().describe('The provider id, e.g. atlas or forumulate.'),
       cbid: z.string().describe('The site the provider opens cases on.'),
-      providerKey: z.string().describe('The provider instance\'s secret key (Atlas: the instance secret key). Used for this one call, never stored.'),
+      providerKey: z.string().describe('The provider instance\'s secret key (Atlas: the instance secret key; Forumulate: an org token, fck_…). Used for this one call, never stored.'),
+      orgId: z.string().optional().describe('Forumulate only (required there): the Forumulate organisation.'),
       connector: z
         .object({ url: z.string(), method: z.enum(['PUT', 'POST']).optional(), body: z.record(z.unknown()) })
         .optional()
         .describe('Only for a provider with no built-in connector: its https orchestrator URL and JSON body; a body value "{apiKey}" becomes the minted key.'),
-      executor: z.boolean().optional().describe('Atlas only: also create or update the atlas connected system, holding the narrow key Atlas mints and the signing secret of the completion webhook Atlas points at its webhookUrl. Needs a key not locked to properties.'),
+      executor: z.boolean().optional().describe('Forumulate: also mint Forumulate\'s executor key into the forumulate connected system. Atlas: also create or update the atlas connected system, holding the narrow key Atlas mints and the signing secret of the completion webhook Atlas points at its webhookUrl. Needs a key not locked to properties.'),
       dryRun: z.boolean().optional().describe('Show the key and the request that would be made, minting and sending nothing.'),
     },
     (a) =>
       client.integrations.connect(
         a.provider as string,
-        { cbid: a.cbid as string, providerKey: a.providerKey as string, ...(a.connector ? { connector: a.connector as { url: string; method?: 'PUT' | 'POST'; body: Record<string, unknown> } } : {}), ...(typeof a.executor === 'boolean' ? { executor: a.executor } : {}) },
+        { cbid: a.cbid as string, providerKey: a.providerKey as string, ...(typeof a.orgId === 'string' ? { orgId: a.orgId } : {}), ...(a.connector ? { connector: a.connector as { url: string; method?: 'PUT' | 'POST'; body: Record<string, unknown> } } : {}), ...(typeof a.executor === 'boolean' ? { executor: a.executor } : {}) },
         { dryRun: a.dryRun === true },
       ),
   );
@@ -1100,7 +1101,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'list_cookie_presets',
-    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
+    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
     { cbid: z.string() },
     (a) => client.sites.cookiePresets(a.cbid as string),
   );
@@ -1110,7 +1111,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId. A row filed under a disabled category comes back in warnings with a suggestedConfigPatch.',
     {
       cbid: z.string(),
-      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'referally']).describe('referally is the deprecated old name of referalli.'),
+      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'seolyticize', 'referally']).describe('referally is the deprecated old name of referalli.'),
       frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
       crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
       publishableKey: z.string().optional().describe('Atlas: your publishable key (pk_live_…). With frontendApiHost, the instance\'s declarations are read from Atlas\'s public GET https://<frontendApiHost>/v1/cookie_manifest when the site has no Atlas connection or its key cannot read them.'),
@@ -1202,7 +1203,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'remove_cookie_preset',
     'Remove every declaration a vendor preset made on this site: a first-class preset, or a custom one (import_cookie_manifest) by its product id.',
-    { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },
+    { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },
     (a) => client.sites.removeCookiePreset(a.cbid as string, a.vendor as 'atlas', a.dryRun ? { dryRun: true } : undefined),
   );
 

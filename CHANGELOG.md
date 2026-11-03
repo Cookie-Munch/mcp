@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.16.0 (2026-11-03)
+
+- Added: `orgId` on `connect_identity_provider` for the Forumulate connect; the `seolyticize` preset and the `none` storage type.
+
 ## 0.15.0 (2026-11-03)
 
 - Added: `fragment`, `format` and `lang` on `get_privacy_policy`; the new executor fields (`lastConformance`, preset `family`) and the Atlas `executor: true` connect.
