@@ -1201,6 +1201,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'translate_config',
+    'Machine-translate the site’s own banner and category copy (the banner.content strings and category wording it wrote, custom categories included) into the i18n.overrides languages it lacks (or `languages`, any of the 40 banner languages) on its connected account. Stock copy is already translated and never sent. Never overwrites a person’s text; filled entries are marked in i18n.machineTranslations. dryRun (the default here) lists every change and calls no provider; pass dryRun: false to translate (it costs the customer provider credits). Set i18n.autoTranslate: true to run it on every save that changes copy.',
+    { cbid: z.string(), languages: z.array(z.string()).optional(), dryRun: z.boolean().default(true) },
+    (a) => client.sites.translateConfig(a.cbid as string, a.languages ? { languages: a.languages as string[] } : {}, a.dryRun === false ? undefined : { dryRun: true }),
+  );
+
+  tool(
     'remove_cookie_preset',
     'Remove every declaration a vendor preset made on this site: a first-class preset, or a custom one (import_cookie_manifest) by its product id.',
     { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },

@@ -421,6 +421,7 @@ const EXPECTED_TOOLS = [
   'connect_cookie_translation',
   'disconnect_cookie_translation',
   'translate_cookies',
+  'translate_config',
   'apply_cookie_preset',
   'remove_cookie_preset',
   'delete_observed_cookie',

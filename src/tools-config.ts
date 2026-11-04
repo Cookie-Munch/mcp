@@ -115,6 +115,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
       .union([z.boolean(), z.array(z.string())])
       .optional()
       .describe('Silence the save warnings about copy with no translation: true for every language, or the language tags whose gaps you accept (de, pt-BR). Changes nothing a visitor sees. Stored in i18n.acknowledgedGaps.'),
+    autoTranslate: z.boolean().optional().describe('true: every save that changes the site\'s own copy fills its missing overrides languages on the site\'s connected translation account (see translate_config). Stored in i18n.autoTranslate.'),
   });
 
   tool(
@@ -122,7 +123,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
     'Configure language/i18n settings for a site: default culture, auto-detect, and the site\'s own copy per language (overrides). Fetches the current config, patches only i18n + banner.i18n, and PUTs.',
     setLanguagesSchema.shape,
     async (a) => {
-      const { cbid: siteId, defaultCulture, autoDetect, translations, overrides, acknowledgedGaps } = setLanguagesSchema.parse(a);
+      const { cbid: siteId, defaultCulture, autoDetect, translations, overrides, acknowledgedGaps, autoTranslate } = setLanguagesSchema.parse(a);
       const cfg = await client.sites.getConfig(siteId) as Record<string, unknown>;
       const existingI18n = (cfg['i18n'] ?? {}) as Record<string, unknown>;
       const existingBanner = (cfg['banner'] ?? {}) as Record<string, unknown>;
@@ -132,6 +133,7 @@ export function registerConfigTools(tool: ToolRegistrar, client: CookieMunchClie
         ...(defaultCulture !== undefined ? { defaultCulture } : {}),
         ...(autoDetect !== undefined ? { autoDetect } : {}),
         ...(acknowledgedGaps !== undefined ? { acknowledgedGaps } : {}),
+        ...(autoTranslate !== undefined ? { autoTranslate } : {}),
         ...(overrides !== undefined
           ? { overrides: { ...((existingI18n['overrides'] ?? {}) as Record<string, unknown>), ...overrides } }
           : {}),

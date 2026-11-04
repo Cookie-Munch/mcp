@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.17.0 (2026-11-04)
+
+- Added: `translate_config`; `autoTranslate` on `set_languages`.
+
 ## 0.16.0 (2026-11-03)
 
 - Added: `orgId` on `connect_identity_provider` for the Forumulate connect; the `seolyticize` preset and the `none` storage type.
