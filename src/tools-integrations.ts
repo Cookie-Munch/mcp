@@ -100,10 +100,10 @@ export function registerIntegrationTools(tool: ToolRegistrar, client: CookieMunc
 
   const linkSchema = z.object({
     cbid: z.string(),
-    partner: z.string().describe('A partner this deployment knows: forumulate, atlas, chatly, referalli, or any other registered on it (list_site_partners shows them).'),
+    partner: z.string().describe('A partner this deployment knows: forumulate, atlas, chatly, referalli, hermetica, or any other registered on it (list_site_partners shows them).'),
     externalId: z.string().describe('The partner’s id for the receiving account, e.g. a Forumulate organisation id.'),
     label: z.string().optional().describe('Shown with the partner name, e.g. "docs".'),
-    events: z.array(z.enum(['consent.recorded', 'consent.withdrawn'])).optional(),
+    events: z.array(z.enum(['consent.recorded', 'consent.withdrawn', 'subscription.changed'])).optional().describe('Default: the consent events (all three for hermetica). subscription.changed sends topic-subscription changes both ways.'),
     dryRun: z.boolean().optional(),
   });
   tool(

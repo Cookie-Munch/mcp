@@ -635,12 +635,16 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'scan_site',
-    'Trigger a cookie crawl of a site (at most 90 s). Returns its scanId and state (queued). With wait: true, returns once it is done or failed — state, cookieCount, pagesVisited, durationMs, error. The stored list keeps cookies earlier crawls and real visits found; retire one the site no longer sets.',
-    { ...cbid, wait: z.boolean().optional().describe('Wait for the scan to finish (up to 100 s) and return its outcome.') },
+    'Trigger a cookie crawl of a site (at most 90 s). Returns its scanId and state (queued). With wait: true, returns once it is done or failed — state, cookieCount, pagesVisited, durationMs, error. The stored list keeps cookies earlier crawls and real visits found; retire one the site no longer sets. Once done it reports undeclared (seen, not declared) and stale (declared, not seen) rows.',
+    {
+      ...cbid,
+      wait: z.boolean().optional().describe('Wait for the scan to finish (up to 100 s) and return its outcome.'),
+      cookies: z.string().optional().describe('A signed-in crawl: a test account\'s Cookie header value ("sid=abc; csrf=def"). Set only on the site\'s own hosts; never stored or returned.'),
+    },
     async (a) => {
       let started: unknown;
       try {
-        started = await client.sites.scan(a.cbid as string);
+        started = await (a.cookies !== undefined ? client.sites.scan(a.cbid as string, { cookies: a.cookies as string }) : client.sites.scan(a.cbid as string));
       } catch (err) {
         // Already running: with wait, wait for that one rather than fail.
         if (!a.wait || (err as { status?: number }).status !== 409) throw err;
@@ -1101,7 +1105,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'list_cookie_presets',
-    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
+    'Declaration presets for the platforms a site is built on (atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize, lucida, hermetica, watchtower): each one’s parameters, what it has declared on this site, and whether the vendor’s live manifest can be imported yet. Read-only.',
     { cbid: z.string() },
     (a) => client.sites.cookiePresets(a.cbid as string),
   );
@@ -1111,24 +1115,25 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'Apply (or re-sync) a vendor preset: declares exactly what that platform writes — cookies and browser storage, with domain and lifetime — marked as declared by that vendor. Re-applying removes keys the vendor no longer writes. Names the owner declared are kept (skipped). Atlas needs frontendApiHost (and crossSubdomainCookies, default true); Chatly needs publicId. A row filed under a disabled category comes back in warnings with a suggestedConfigPatch.',
     {
       cbid: z.string(),
-      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'seolyticize', 'referally']).describe('referally is the deprecated old name of referalli.'),
+      vendor: z.enum(['atlas', 'forumulate', 'chatly', 'cookiemunch', 'referalli', 'firstpromoter', 'partnerstack', 'tapfiliate', 'impact', 'seolyticize', 'lucida', 'hermetica', 'watchtower', 'referally']).describe('referally is the deprecated old name of referalli.'),
       frontendApiHost: z.string().optional().describe('Atlas: your frontend API host, e.g. auth.example.com.'),
       crossSubdomainCookies: z.boolean().optional().describe('Atlas: default true — the cookies live on the parent domain.'),
       publishableKey: z.string().optional().describe('Atlas: your publishable key (pk_live_…). With frontendApiHost, the instance\'s declarations are read from Atlas\'s public GET https://<frontendApiHost>/v1/cookie_manifest when the site has no Atlas connection or its key cannot read them.'),
       publicId: z.string().optional().describe('Chatly: the channel public id (ch_web_…).'),
       dragging: z.boolean().optional().describe('Chatly: the launcher can be dragged (adds the drag-position key).'),
-      storage: z.union([z.enum(['allow', 'deny', 'on-open']), z.object({ functional: z.enum(['allow', 'deny', 'on-open']).optional(), analytics: z.enum(['allow', 'deny', 'on-open']).optional(), marketing: z.enum(['allow', 'deny', 'on-open']).optional() })]).optional().describe('Chatly: the widget\'s own storage option, as passed to Chatly.init; analytics "deny" leaves chatly:seen out, marketing "deny" chatly:utm.'),
+      storage: z.union([z.enum(['allow', 'deny', 'on-open', 'localStorage', 'cookie']), z.object({ functional: z.enum(['allow', 'deny', 'on-open']).optional(), analytics: z.enum(['allow', 'deny', 'on-open']).optional(), marketing: z.enum(['allow', 'deny', 'on-open']).optional() })]).optional().describe('Chatly: the widget\'s own storage option, as passed to Chatly.init; analytics "deny" leaves chatly:seen out, marketing "deny" chatly:utm. Hermetica: "localStorage" (default) or "cookie".'),
       tracking: z.union([z.boolean(), z.object({ visits: z.boolean().optional(), exitIntent: z.boolean().optional(), scrollDepth: z.boolean().optional() })]).optional().describe('Chatly: the widget\'s own tracking option; false, or visits false, leaves chatly:seen out.'),
       category: z.string().optional().describe('Chatly: the category for its keys (default necessary). Referral and affiliate presets: default the site\'s referrals category, else marketing.'),
       cookieDomain: z.string().optional().describe('Referral and affiliate presets: the domain their script sets its cookies on, e.g. .example.com. Default the site domain.'),
       cookieDays: z.number().int().min(1).max(400).optional().describe('Referral and affiliate presets: your program\'s cookie window, 1 to 400 days.'),
       legacyName: z.boolean().optional().describe('referalli: default true, also declare referally_ctx (the pre-rename copy aff.js still writes).'),
       campaignId: z.string().optional().describe('impact: your program id; declares IR_<campaignId> too.'),
+      publicKey: z.string().optional().describe('lucida: your public project key; rows become exact names ending in its last 8 word characters (else prefix patterns).'),
       dryRun: dryRunArg,
     },
     (a) => {
       const params: Record<string, unknown> = {};
-      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publishableKey', 'publicId', 'dragging', 'storage', 'tracking', 'category', 'cookieDomain', 'cookieDays', 'legacyName', 'campaignId'] as const) if (a[k] !== undefined) params[k] = a[k];
+      for (const k of ['frontendApiHost', 'crossSubdomainCookies', 'publishableKey', 'publicId', 'dragging', 'storage', 'tracking', 'category', 'cookieDomain', 'cookieDays', 'legacyName', 'campaignId', 'publicKey'] as const) if (a[k] !== undefined) params[k] = a[k];
       return client.sites.applyCookiePreset(a.cbid as string, a.vendor as 'atlas', params, a.dryRun ? { dryRun: true } : undefined);
     },
   );
@@ -1210,7 +1215,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'remove_cookie_preset',
     'Remove every declaration a vendor preset made on this site: a first-class preset, or a custom one (import_cookie_manifest) by its product id.',
-    { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },
+    { cbid: z.string(), vendor: z.string().describe('atlas, forumulate, chatly, cookiemunch, referalli, firstpromoter, partnerstack, tapfiliate, impact, seolyticize, lucida, hermetica, watchtower (referally is an alias of referalli), or a custom preset\'s product id.'), dryRun: dryRunArg },
     (a) => client.sites.removeCookiePreset(a.cbid as string, a.vendor as 'atlas', a.dryRun ? { dryRun: true } : undefined),
   );
 
@@ -1300,11 +1305,11 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
     'set_mail_provider',
     'Connect your own mail provider for rights-request mail — recommended, so codes come from your own domain. Replaces the stored one. It carries mail only after test_mail_provider succeeds; every save clears that. Omit secret to keep the stored one (same provider only).',
     {
-      provider: z.enum(['brevo', 'sendgrid', 'postmark', 'resend', 'ses', 'smtp']),
+      provider: z.enum(['brevo', 'sendgrid', 'postmark', 'resend', 'ses', 'smtp', 'hermetica']),
       fromEmail: z.string().describe('An address on a domain your provider has verified.'),
       fromName: z.string().max(100).nullable().optional(),
       replyTo: z.string().nullable().optional(),
-      secret: z.string().optional().describe('API key (Brevo, SendGrid, Resend), server token (Postmark), secret access key (SES) or SMTP password. Write-only.'),
+      secret: z.string().optional().describe('API key (Brevo, SendGrid, Resend, Hermetica), server token (Postmark), secret access key (SES) or SMTP password. Write-only.'),
       ses: z.object({ region: z.string(), accessKeyId: z.string() }).optional().describe('Required for ses.'),
       smtp: z
         .object({ host: z.string(), port: z.union([z.literal(25), z.literal(465), z.literal(587), z.literal(2525)]), security: z.enum(['tls', 'starttls']), username: z.string() })
@@ -1480,6 +1485,13 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   tool(
+    'check_rights_identity',
+    'Check one session token (a JWT from the signed-in page) against the site’s sign-in provider, as the rights intake would: verified or not, which check failed, and the claim names it carries. Files nothing and never echoes the email.',
+    { cbid: z.string(), token: z.string() },
+    (a) => client.rightsIdentity.check(a.cbid as string, a.token as string),
+  );
+
+  tool(
     'remove_rights_identity',
     'Remove a site’s own sign-in provider: it inherits the organisation default again (or none). Returns the setting now in force.',
     { cbid: z.string() },
@@ -1510,8 +1522,12 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   tool(
     'get_audit_log',
     'The organisation’s audit log, newest first: administrative changes made in the dashboard or through the API, and who made them. Read-only.',
-    { limit: z.number().int().min(1).max(500).optional(), actor: z.string().optional().describe('"self" for this key’s own rows (allowed for scoped keys), or one actor id.') },
-    (a) => client.audit(a.limit as number | undefined, a.actor ? { actor: a.actor as string } : undefined),
+    {
+      limit: z.number().int().min(1).max(500).optional(),
+      actor: z.string().optional().describe('"self" for this key’s own rows (allowed for scoped keys), or one actor id.'),
+      since: z.string().optional().describe('Only rows at or after this time (ISO 8601 or epoch ms).'),
+    },
+    (a) => client.audit(a.limit as number | undefined, a.actor || a.since ? { ...(a.actor ? { actor: a.actor as string } : {}), ...(a.since ? { since: a.since as string } : {}) } : undefined),
   );
 
   tool(

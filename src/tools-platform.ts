@@ -393,6 +393,7 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
       orgId: z.string().optional().describe("A preset param, when the preset's params list it."),
       atlasIdAppId: z.string().optional().describe("A preset param, when the preset's params list it: the identity platform's app id, kept for revokeAtlasIdGrant."),
       revokeAtlasIdGrant: z.boolean().optional().describe('A preset param, when the preset\'s params list it: default false. True adds an optional step that revokes the person\'s app grant on erasure; a credential without the scope reports skipped: insufficient_scope.'),
+      params: z.record(z.union([z.string(), z.boolean()])).optional().describe('Any of the preset\'s params by name, as list_dsar_executor_presets lists them: { programId } for referalli (one program of a shared organisation; it must echo the scope or nothing is sent), { projectId } for lucida, { scopeName, scopeId } for cm-standard-v2.'),
       label: z.string().optional().describe('Your name for the credential, shown beside keyPrefix.'),
       system: z.string().optional().describe('The name this connection answers to in a plan, e.g. identity or crm. Required unless the preset has a default.'),
       baseUrl: z.string().optional().describe("The system's public https origin, or a base with a path (cm-standard-v1 v4 on: the path replaces /api/privacy; cm-standard-v2: the contract paths hang off it). Required unless the preset sets it."),
@@ -435,6 +436,13 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'list_dsar_executor_suggestions',
+    "The platforms a site runs on (implied by its cookie rows and its partner links, for every platform that has an executor preset) that have no connected system yet: each one's preset, the reason, and whether the preset is usable now or waits on the platform (waitingOn). Without cbid, every site the key reaches. Read-only.",
+    { cbid: z.string().optional() },
+    (a) => client.fulfillment.executorSuggestions(a.cbid as string | undefined),
+  );
+
+  tool(
     'upgrade_dsar_executor_preset',
     "Rebuild a connection's profile and address from its preset's latest version (or presetVersion), keeping its id, credentials, system and scope — or adopt a preset on a hand-written connection by naming it. Your hand edits (profileOverrides) are kept and listed in the diff as kept or conflict; acceptPreset takes the preset's value for a path. A pinned connection (presetPinned) is refused. Use dryRun first: the answer shows exactly what would change and nothing is stored.",
     {
@@ -444,6 +452,7 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
       orgId: z.string().optional(),
       atlasIdAppId: z.string().optional(),
       revokeAtlasIdGrant: z.boolean().optional(),
+      params: z.record(z.union([z.string(), z.boolean()])).optional().describe("Any of the preset's params by name."),
       acceptPreset: z.array(z.string()).optional().describe('Overridden paths (profileOverrides) that take the preset\'s value again, e.g. ["profile.grantRevoke"]. Every other override is kept.'),
       dryRun: z.boolean().optional().describe('Answer the diff and change nothing.'),
     },
@@ -542,6 +551,13 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
     'Run the cm-standard-v2 conformance kit against a connected system: every rule of the open executor contract (lookup by email and identity, no email match across identities, executeAfter honoured, idempotency, cancel keeps data, 404s, X-Version), on this org\'s canary subject only — no real person. Each rule passes, fails or is skipped by name. Only for a cm-standard-v2 connection.',
     { id: z.string().describe('The connection id.') },
     (a) => client.fulfillment.executorConformance(a.id as string),
+  );
+
+  tool(
+    'get_executor_completion_secret',
+    'Read a connected system\'s current completion secret again, with completionUrl, the URL completions signed with it go to. Needs dsar:write; each read is on the audit log. Roll it only if it may have leaked.',
+    { id: z.string().describe('The connection id.') },
+    (a) => client.fulfillment.getExecutorCompletionSecret(a.id as string),
   );
 
   tool(

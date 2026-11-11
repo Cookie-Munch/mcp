@@ -206,6 +206,7 @@ const EXPECTED_TOOLS = [
   'test_dsar_executor_webhook',
   'get_category_registry',
   'list_dsar_executor_presets',
+  'list_dsar_executor_suggestions',
   'upgrade_dsar_executor_preset',
   'list_dsar_executor_webhook_deliveries',
   'recheck_dsar_executor',
@@ -245,6 +246,7 @@ const EXPECTED_TOOLS = [
   'get_subject_card',
   'connect_identity_provider',
   'run_executor_conformance',
+  'get_executor_completion_secret',
   'roll_executor_completion_secret',
   'advance_dsar',
   'export_consent',
@@ -395,6 +397,7 @@ const EXPECTED_TOOLS = [
   'get_rights_identity',
   'set_rights_identity',
   'remove_rights_identity',
+  'check_rights_identity',
   'get_rights_identity_default',
   'set_rights_identity_default',
   'remove_rights_identity_default',
@@ -600,7 +603,7 @@ describe('registerTools', () => {
   it('rights-identity tools call rightsIdentity and org.rightsIdentity, and say what the token must carry', async () => {
     const { server, byName } = fakeServer();
     const client = mockClient();
-    const site = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
+    const site = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})), check: vi.fn(async () => ({})) };
     const org = { get: vi.fn(async () => ({})), set: vi.fn(async () => ({})), remove: vi.fn(async () => ({})) };
     (client as unknown as { rightsIdentity: typeof site }).rightsIdentity = site;
     (client as unknown as { org: { rightsIdentity: typeof org } }).org = { rightsIdentity: org } as never;
@@ -611,6 +614,8 @@ describe('registerTools', () => {
     expect(site.set).toHaveBeenCalledWith('s1', { type: 'clerk', issuer: 'https://clerk.acme.example', authorizedParties: ['https://www.acme.example'] });
     await byName('remove_rights_identity').handler({ cbid: 's1' });
     expect(site.remove).toHaveBeenCalledWith('s1');
+    await byName('check_rights_identity').handler({ cbid: 's1', token: 'a.b.c' });
+    expect(site.check).toHaveBeenCalledWith('s1', 'a.b.c');
     await byName('get_rights_identity_default').handler({});
     await byName('set_rights_identity_default').handler({ type: 'oidc_jwt', issuer: 'https://id.acme.example', jwksUrl: 'https://id.acme.example/keys', sessionCookieName: 'sid' });
     expect(org.set).toHaveBeenCalledWith({ type: 'oidc_jwt', issuer: 'https://id.acme.example', jwksUrl: 'https://id.acme.example/keys', sessionCookieName: 'sid' });
@@ -749,6 +754,14 @@ describe('registerTools', () => {
     registerTools(server, client);
     await byName('scan_site').handler({ cbid: 'a' });
     expect(client.sites.scan).toHaveBeenCalledWith('a');
+  });
+
+  it('scan_site passes cookies for a signed-in crawl', async () => {
+    const { server, byName } = fakeServer();
+    const client = mockClient();
+    registerTools(server, client);
+    await byName('scan_site').handler({ cbid: 'a', cookies: 'sid=abc' });
+    expect(client.sites.scan).toHaveBeenCalledWith('a', { cookies: 'sid=abc' });
   });
 
   it('scan_site with wait: true starts the scan, then waits for it to settle', async () => {

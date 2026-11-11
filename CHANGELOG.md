@@ -2,6 +2,12 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.19.0 (2026-11-11)
+
+- Added: `check_rights_identity`, `get_executor_completion_secret`, `list_dsar_executor_suggestions`; `since` on `get_audit_log`; `cookies` on `scan_site`; `params` on executor connect and upgrade-preset.
+- Added: `hermetica` as a mail provider and partner, and `subscription.changed` on `link_site_partner`.
+- Changed: tracks `@cookiemunch/sdk` 0.22.0.
+
 ## 0.18.0 (2026-11-04)
 
 - Changed: tracks `@cookiemunch/sdk` 0.18.0; published from CI with an npm provenance attestation.

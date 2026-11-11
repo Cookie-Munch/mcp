@@ -1,5 +1,5 @@
 /**
- * MCP tools for the key model and resource tags (CMU-D09, S02, X29, X31, X34, X35): the calling key itself,
+ * MCP tools for the key model and resource tags: the calling key itself,
  * vended short-lived keys, leak revocation, the standard key listing, tags on resources, suite-standard
  * partner links, and the env of a provisioned product.
  */
