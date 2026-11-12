@@ -424,7 +424,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'get_dsar_case',
-    'One case across every connected system: its status (pending, scheduled, processing, completed, completed_with_retention, rejected, cancelled), executeAfter, trace and one row per system with its status, eta and retention lines. Read-only.',
+    'One case across every connected system: its status (pending, scheduled, processing, blocked, completed, completed_with_retention, rejected, cancelled), executeAfter, trace and one row per system with its status, eta and retention lines. Read-only.',
     { id: z.string() },
     (a) => client.dsar.getCase(a.id as string),
   );

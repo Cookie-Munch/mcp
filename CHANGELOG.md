@@ -2,6 +2,10 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.19.1 (2026-11-11)
+
+- Changed: `get_dsar_case` describes the `blocked` status. Tracks `@cookiemunch/sdk` 0.23.0.
+
 ## 0.19.0 (2026-11-11)
 
 - Added: `check_rights_identity`, `get_executor_completion_secret`, `list_dsar_executor_suggestions`; `since` on `get_audit_log`; `cookies` on `scan_site`; `params` on executor connect and upgrade-preset.
