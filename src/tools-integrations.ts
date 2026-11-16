@@ -122,4 +122,21 @@ export function registerIntegrationTools(tool: ToolRegistrar, client: CookieMunc
     { cbid: z.string(), linkId: z.string() },
     (a) => client.sites.unlinkPartner(a.cbid as string, a.linkId as string),
   );
+
+  const updateSchema = z.object({
+    cbid: z.string(),
+    linkId: z.string(),
+    externalId: z.string().optional().describe('The partner’s id for the receiving account (fixes a wrong one without unlink + link).'),
+    label: z.string().max(60).optional(),
+    dryRun: z.boolean().optional(),
+  });
+  tool(
+    'update_site_partner',
+    'Change a site partner link’s externalId or label in place, keeping the grant. Events cannot change here. warnings names executor keys minted for the old account, to re-mint.',
+    updateSchema.shape,
+    (a) => {
+      const { cbid, linkId, dryRun, ...input } = updateSchema.parse(a);
+      return client.sites.updatePartner(cbid, linkId, input, { dryRun });
+    },
+  );
 }

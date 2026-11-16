@@ -143,6 +143,22 @@ export function registerKeyAndTagTools(tool: ToolRegistrar, client: CookieMunchC
     (a) => client.partnerLinks.revoke(a.id as string),
   );
 
+  const updateSchema = z.object({
+    id: z.string(),
+    externalId: z.string().optional().describe('The partner’s id for the account (fixes a wrong one without unlink + link).'),
+    label: z.string().max(60).optional(),
+    dryRun: z.boolean().optional(),
+  });
+  tool(
+    'update_partner_link',
+    'Change a partner link’s externalId or label in place, keeping the grant. Scopes and events cannot change here. warnings names executor keys minted for the old account, to re-mint.',
+    updateSchema.shape,
+    (a) => {
+      const { id, dryRun, ...input } = updateSchema.parse(a);
+      return client.partnerLinks.update(id, input, { dryRun });
+    },
+  );
+
   tool(
     'get_provision_env',
     'What `env` writes for a product provisioned with this stack ref: variable names, non-secret values (cbid, script URL, API base) and references for secrets, never a secret. Read-only.',
