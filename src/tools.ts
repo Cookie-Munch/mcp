@@ -1057,11 +1057,28 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       cbid: z.string(),
       cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500).optional(),
       replace: z.boolean().optional(),
+      handOver: z.array(z.string()).optional().describe('Own rows to give to a preset in presets that declares the same name; each must end up declared by a preset.'),
       presets: z.record(z.string(), z.record(z.string(), z.unknown())).optional().describe('Vendor → its preset params, as apply_cookie_preset takes them; applied in this order.'),
     },
     (a) => {
       const { cbid, ...input } = a as { cbid: string } & Record<string, unknown>;
       return client.sites.planCookies(cbid, input as never);
+    },
+  );
+
+  tool(
+    'apply_cookies',
+    'Apply what plan_cookies shows, all or nothing: the same steps on a scratch copy, stored only when every step and the handOver check pass, each preset registered as its own apply would. A refusal stores nothing. Run plan_cookies first and show the person its diff. A custom preset is refused here (use apply_custom_cookie_preset).',
+    {
+      cbid: z.string(),
+      cookies: z.array(z.object({ name: z.string(), ...declarationShape })).max(500).optional(),
+      replace: z.boolean().optional(),
+      handOver: z.array(z.string()).optional().describe('Own rows to give to a preset in presets that declares the same name; each must end up declared by a preset.'),
+      presets: z.record(z.string(), z.record(z.string(), z.unknown())).optional().describe('Vendor → its preset params, as apply_cookie_preset takes them; applied in this order.'),
+    },
+    (a) => {
+      const { cbid, ...input } = a as { cbid: string } & Record<string, unknown>;
+      return client.sites.applyCookies(cbid, input as never);
     },
   );
 

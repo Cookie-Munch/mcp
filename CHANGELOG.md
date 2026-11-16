@@ -2,6 +2,11 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.20.0 (2026-11-16)
+
+- Added: `apply_cookies`, which stores what `plan_cookies` shows, all or nothing.
+- Added: `handOver` on `plan_cookies`.
+
 ## 0.19.1 (2026-11-11)
 
 - Changed: `get_dsar_case` describes the `blocked` status. Tracks `@cookiemunch/sdk` 0.23.0.

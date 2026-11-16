@@ -413,6 +413,7 @@ const EXPECTED_TOOLS = [
   'declare_cookie',
   'declare_cookies',
   'plan_cookies',
+  'apply_cookies',
   'undeclare_cookie',
   'retire_cookie',
   'unretire_cookie',
