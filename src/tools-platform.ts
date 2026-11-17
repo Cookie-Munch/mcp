@@ -521,6 +521,13 @@ export function registerPlatformTools(tool: ToolRegistrar, client: CookieMunchCl
   );
 
   tool(
+    'retry_dsar_task',
+    'Send a failed fulfilment task again, once the system it went to has been fixed (only a failed task of a request in progress, on a connection that still exists, never an erasure a person rejected). It is a new request to that system; an erasure on a connection with requireApproval waits for approval again. The next attempt can DELETE the person\'s data there: only do it when the operator has asked.',
+    { requestId: z.string(), taskId: z.string() },
+    (a) => client.fulfillment.retryTask(a.requestId as string, a.taskId as string),
+  );
+
+  tool(
     'reject_dsar_task',
     'Reject an erasure waiting for approval: nothing is sent, the task fails with the reason, and the request then needs a person (action_required). Audited.',
     { requestId: z.string(), taskId: z.string(), reason: z.string().max(500).optional() },

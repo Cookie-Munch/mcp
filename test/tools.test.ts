@@ -201,6 +201,7 @@ const EXPECTED_TOOLS = [
   'get_dsar_task_export',
   'get_dsar_task',
   'approve_dsar_task',
+  'retry_dsar_task',
   'reject_dsar_task',
   'test_dsar_executor',
   'test_dsar_executor_webhook',
