@@ -2,6 +2,14 @@
 
 Every published release, newest first. Dates are the day the version was cut. Each release tracks the same-numbered `@cookiemunch/sdk`.
 
+## 0.22.0 (2026-11-17)
+
+- Added: `retry_dsar_task`.
+
+## 0.21.0 (2026-11-16)
+
+- Added: `update_partner_link` and `update_site_partner`.
+
 ## 0.20.0 (2026-11-16)
 
 - Added: `apply_cookies`, which stores what `plan_cookies` shows, all or nothing.
