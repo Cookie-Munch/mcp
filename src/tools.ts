@@ -1297,17 +1297,17 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
   );
 
   // ---- account keys (orgs:keys): manage keys in another org of the same account ----
-  tool('list_org_keys', "Another org's API key prefixes on the same account. Never the secrets. Needs an account key (orgs:keys). Read-only.", { orgId: z.string() }, (a) =>
+  tool('list_org_keys', "Another org's API key prefixes on the same account. Never the secrets. Needs a full-access key or an account key (orgs:keys). Read-only.", { orgId: z.string() }, (a) =>
     client.keys.listInOrg(a.orgId as string),
   );
 
   tool(
     'issue_org_key',
-    "Mint a scoped API key in another org of the same account. The secret is returned once. scopes is required. Needs an account key (orgs:keys).",
-    { orgId: z.string(), scopes: z.array(z.string()).min(1), name: z.string().optional(), cbids: z.array(z.string()).min(1).optional() },
+    "Mint an API key in another org of the same account. The secret is returned once. scopes is required with an account key; a full-access key may omit it for a full-access key there. Needs a full-access key or an account key (orgs:keys).",
+    { orgId: z.string(), scopes: z.array(z.string()).min(1).optional(), name: z.string().optional(), cbids: z.array(z.string()).min(1).optional() },
     (a) =>
       client.keys.createInOrg(a.orgId as string, {
-        scopes: a.scopes as string[],
+        ...(a.scopes ? { scopes: a.scopes as string[] } : {}),
         ...(a.name ? { name: a.name as string } : {}),
         ...(a.cbids ? { cbids: a.cbids as string[] } : {}),
       }),
@@ -1315,7 +1315,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
 
   tool(
     'update_org_key',
-    "Rename a key in another org of the same account, or replace its scopes or property lock. Only the fields given change. Needs an account key (orgs:keys).",
+    "Rename a key in another org of the same account, or replace its scopes or property lock. Only the fields given change. Needs a full-access key or an account key (orgs:keys).",
     {
       orgId: z.string(),
       prefix: z.string(),
@@ -1331,7 +1331,7 @@ export function registerTools(server: ToolServer, client: CookieMunchClient): vo
       }),
   );
 
-  tool('revoke_org_key', "Revoke a key in another org of the same account by prefix. Immediate. Needs an account key (orgs:keys).", { orgId: z.string(), prefix: z.string() }, async (a) => {
+  tool('revoke_org_key', "Revoke a key in another org of the same account by prefix. Immediate. Needs a full-access key or an account key (orgs:keys).", { orgId: z.string(), prefix: z.string() }, async (a) => {
     await client.keys.revokeInOrg(a.orgId as string, a.prefix as string);
     return { revoked: a.prefix };
   });
